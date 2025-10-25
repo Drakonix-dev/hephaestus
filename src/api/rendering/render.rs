@@ -1,6 +1,6 @@
-use std::{collections::HashMap, mem::take, path::Path};
+use std::{collections::HashMap, mem::take};
 
-use crate::{core::ecs::World, rendering::{DrawMesh, MaterialDefinition, MaterialHandle, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{core::ecs::World, rendering::{DrawMesh, MaterialDefinition, MaterialHandle, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 // RenderPhase defines a phase of rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,7 +59,7 @@ pub(crate) trait RendererBackend {
     fn present(&mut self);
     
     fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle;
-    fn create_shader(&mut self, path: &Path) -> ShaderHandle;
+    fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle;
     fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle;
 }
 
@@ -99,8 +99,8 @@ impl Renderer {
         self.backend.create_material(def)
     }
 
-    pub fn create_shader(&mut self, path: &Path) -> ShaderHandle {
-        self.backend.create_shader(path)
+    pub fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle {
+        self.backend.create_shader(def)
     }
 
     pub fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle {

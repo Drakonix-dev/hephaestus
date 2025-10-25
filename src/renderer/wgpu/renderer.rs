@@ -1,6 +1,4 @@
-use std::path::Path;
-
-use crate::{platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, Material, MaterialDefinition, MaterialHandle, RenderPhase, RendererBackend, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, MaterialDefinition, MaterialHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
@@ -79,8 +77,8 @@ impl RendererBackend for Renderer {
         self.materials.create_material(&self.device, &self.shaders, &self.textures, def)
     }
 
-    fn create_shader(&mut self, path: &Path) -> ShaderHandle {
-        self.shaders.create_shader(&self.device, path)
+    fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle {
+        self.shaders.create_shader(&self.device, def)
     }
 
     fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle {

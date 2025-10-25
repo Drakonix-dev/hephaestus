@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
-use crate::{renderer::wgpu::{shader::ShaderManager, texture::TextureManager}, rendering::{Material, MaterialDefinition, MaterialHandle, ShaderHandle}};
+use crate::{renderer::wgpu::{shader::ShaderManager, texture::TextureManager}, rendering::{MaterialDefinition, MaterialHandle}};
 
 pub(crate) struct MaterialManager {
     materials: HashMap<MaterialHandle, MaterialInstance>,
@@ -23,7 +23,7 @@ impl MaterialManager {
     }
 
     pub(crate) fn create_material(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         shaders: &ShaderManager,
         textures: &TextureManager,
@@ -47,7 +47,7 @@ impl MaterialManager {
            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let bind_group_layout = &shader.bind_group_layout;
+        let bind_group_layout = &shader.layout;
 
         let entries = vec![
             wgpu::BindGroupEntry {
