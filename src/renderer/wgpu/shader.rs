@@ -1,8 +1,9 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, num::NonZeroU64, mem};
 
-use crate::rendering::{BindGroupLayout, BindingType, ShaderDefinition, ShaderHandle, ShaderStage};
+use crate::{builtin::BuiltinShader, rendering::{BindGroupLayout, BindingDesc, BindingType, MaterialUniforms, ShaderDefinition, ShaderHandle, ShaderStage}};
 
 pub(crate) struct ShaderManager {
+    builtin: HashMap<BuiltinShader, ShaderHandle>,
     shaders: HashMap<ShaderHandle, ShaderInstance>,
     next_id: ShaderHandle,
 }
@@ -16,6 +17,7 @@ pub(crate) struct ShaderInstance {
 impl ShaderManager {
     pub(crate) fn new() -> Self {
         Self {
+            builtin: HashMap::new(),
             shaders: HashMap::new(),
             next_id: ShaderHandle::new(),
         }
@@ -41,8 +43,33 @@ impl ShaderManager {
         handle
     }
 
+    pub(crate) fn get_builtin(&self, shader: &BuiltinShader) -> ShaderHandle {
+        self.builtin.get(shader).unwrap().clone()
+    }
+
     pub(crate) fn get_shader(&self, handle: &ShaderHandle) -> Option<&ShaderInstance> {
         self.shaders.get(handle)
+    }
+
+    pub(crate) fn register_builtin_shaders(&mut self, device: &wgpu::Device) {
+        let simple_color = ShaderDefinition {
+            source: "assets/shaders/simple_color.wgsl".as_ref(),
+            layout: BindGroupLayout {
+                entries: &[BindingDesc {
+                    binding: 0,
+                    ty: BindingType::UniformBuffer {
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(NonZeroU64::new(
+                            mem::size_of::<MaterialUniforms> as u64,     
+                        ).unwrap()),
+                    },
+                    visibility: ShaderStage::VertexFragment,
+                }],
+            },
+        };
+
+        let handle = self.create_shader(device, &simple_color);
+        self.builtin.insert(BuiltinShader::SimpleColor, handle);
     }
 }
 
@@ -60,10 +87,13 @@ impl<'a> BindGroupLayout<'a> {
             };
             
             let ty = match entry.ty {
-                BindingType::StorageBuffer => wgpu::BindingType::Buffer {
+                BindingType::StorageBuffer {
+                    has_dynamic_offset,
+                    min_binding_size,
+                } => wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                    has_dynamic_offset,
+                    min_binding_size,
                 },
                 BindingType::Texture2D => wgpu::BindingType::Texture {
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -75,10 +105,13 @@ impl<'a> BindGroupLayout<'a> {
                     view_dimension: wgpu::TextureViewDimension::Cube,
                     multisampled: false,
                 },
-                BindingType::UniformBuffer => wgpu::BindingType::Buffer {
+                BindingType::UniformBuffer {
+                    has_dynamic_offset,
+                    min_binding_size,
+                } => wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                    has_dynamic_offset,
+                    min_binding_size,
                 },
                 BindingType::Sampler => wgpu::BindingType::Sampler(
                     wgpu::SamplerBindingType::Filtering,

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{num::NonZeroU64, path::Path};
 
 use crate::define_handle;
 
@@ -23,10 +23,16 @@ pub struct BindingDesc {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BindingType {
     Sampler,
-    StorageBuffer,
+    StorageBuffer {
+        has_dynamic_offset: bool,
+        min_binding_size: Option<NonZeroU64>,
+    },
     Texture2D,
     TextureCube,
-    UniformBuffer,
+    UniformBuffer {
+        has_dynamic_offset: bool,
+        min_binding_size: Option<NonZeroU64>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

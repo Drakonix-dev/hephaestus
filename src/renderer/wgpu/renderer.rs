@@ -1,4 +1,4 @@
-use crate::{platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{builtin::BuiltinShader, platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
@@ -64,6 +64,9 @@ impl Renderer {
 
         surface.configure(&device, &config);
 
+        let mut shaders = ShaderManager::new();
+        shaders.register_builtin_shaders(&device);
+
         Self {
             config,
             device,
@@ -71,7 +74,7 @@ impl Renderer {
             meshes: MeshManager::new(),
             pipelines: PipelineManager::new(),
             queue,
-            shaders: ShaderManager::new(),
+            shaders: shaders,
             surface,
             textures: TextureManager::new(),
 
@@ -94,6 +97,10 @@ impl Renderer {
 }
 
 impl RendererBackend for Renderer {
+    fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle {
+        self.shaders.get_builtin(shader)
+    }
+    
     fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle {
         self.materials.create_material(&self.device, &self.shaders, &self.textures, def)
     }
