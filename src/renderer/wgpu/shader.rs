@@ -53,7 +53,7 @@ impl ShaderManager {
 
     pub(crate) fn register_builtin_shaders(&mut self, device: &wgpu::Device) {
         let simple_color = ShaderDefinition {
-            source: "assets/shaders/simple_color.wgsl".as_ref(),
+            source: "hephaestus/assets/shaders/simple_color.wgsl".as_ref(),
             layout: BindGroupLayout {
                 entries: &[BindingDesc {
                     binding: 0,
