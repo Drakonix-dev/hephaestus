@@ -1,0 +1,12 @@
+[package]
+name = "hephaestus"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytemuck = "1.23.1"
+image = "0.25.6"
+pollster = "0.4.0"
+raw-window-handle = "0.6.2"
+wgpu = "26.0.1"
+winit = "0.30.11"
