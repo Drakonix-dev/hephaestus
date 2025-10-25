@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
-use crate::{renderer::wgpu::{shader::ShaderManager, texture::TextureManager}, rendering::{MaterialDefinition, MaterialHandle}};
+use crate::{renderer::wgpu::{shader::ShaderManager, texture::TextureManager}, rendering::{MaterialDefinition, MaterialHandle, ShaderHandle}};
 
 pub(crate) struct MaterialManager {
     materials: HashMap<MaterialHandle, MaterialInstance>,
@@ -11,7 +11,7 @@ pub(crate) struct MaterialManager {
 
 pub(crate) struct MaterialInstance {
     pub(crate) bind_group: wgpu::BindGroup,
-    pub(crate) buffer: wgpu::Buffer,
+    pub(crate) shader: ShaderHandle,
 }
 
 impl MaterialManager {
@@ -74,8 +74,8 @@ impl MaterialManager {
         self.next_id = self.next_id.next();
 
         self.materials.insert(handle, MaterialInstance {
-            buffer: uniform_buffer,
             bind_group,
+            shader: def.shader,
         });
 
         handle

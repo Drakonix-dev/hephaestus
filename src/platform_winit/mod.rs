@@ -20,7 +20,7 @@ impl WinitPlatform {
 
 struct AppHandler<A: Application + 'static> {
     app: A,
-    context: Option<ApplicationContext>,
+    ctx: Option<ApplicationContext>,
     window: Option<Window>,
 }
 
@@ -28,7 +28,7 @@ impl<A: Application + 'static> AppHandler<A> {
     fn new(app: A) -> Self {
         Self {
             app,
-            context: None,
+            ctx: None,
             window: None,
         }
     }
@@ -60,7 +60,7 @@ impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
 
         self.app.init(&mut ctx);
         
-        self.context = Some(ctx);
+        self.ctx = Some(ctx);
         self.window = Some(window);
     }
 
@@ -74,8 +74,13 @@ impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
             return;
         };
 
-        if let  Some(ctx) = self.context.as_mut() {
+        if let Some(ctx) = self.ctx.as_mut() {
             self.app.handle_event(ctx, event);
+            
+            match event {
+                Event::Resized(w, h) => ctx.renderer.resize(w, h),
+                _ => {},
+            };
         }
     }
 }

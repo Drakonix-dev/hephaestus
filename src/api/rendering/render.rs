@@ -57,6 +57,7 @@ impl<'a> RenderContext<'a> {
 pub(crate) trait RendererBackend {
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]);
     fn present(&mut self);
+    fn resize(&mut self, width: u32, height: u32);
     
     fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle;
     fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle;
@@ -100,6 +101,10 @@ impl Renderer {
         self.backend.create_material(def)
     }
 
+    pub fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle {
+        self.backend.create_mesh(def)
+    }
+
     pub fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle {
         self.backend.create_shader(def)
     }
@@ -134,6 +139,10 @@ impl Renderer {
         } 
 
         self.finish_frame();
+    }
+
+    pub(crate) fn resize(&mut self, width: u32, height: u32) {
+        self.backend.resize(width, height)
     }
 
     pub fn set_phrase_order(&mut self, phases: Vec<RenderPhase>) {

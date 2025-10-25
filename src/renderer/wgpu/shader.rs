@@ -8,6 +8,7 @@ pub(crate) struct ShaderManager {
 }
 
 pub(crate) struct ShaderInstance {
+    pub(crate) handle: ShaderHandle,
     pub(crate) layout: wgpu::BindGroupLayout,
     pub(crate) module: wgpu::ShaderModule,
 }
@@ -32,6 +33,7 @@ impl ShaderManager {
         self.next_id = self.next_id.next();
 
         self.shaders.insert(handle, ShaderInstance {
+            handle,
             layout: def.layout.to_wgpu(&device),
             module: shader,
         });

@@ -1,14 +1,17 @@
-use crate::{platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     materials: MaterialManager,
     meshes: MeshManager,
+    pipelines: PipelineManager,
     queue: wgpu::Queue,
     shaders: ShaderManager,
     surface: wgpu::Surface<'static>,
     textures: TextureManager,
+
+    current_frame: Option<wgpu::SurfaceTexture>,
 }
 
 impl Renderer {
@@ -66,11 +69,27 @@ impl Renderer {
             device,
             materials: MaterialManager::new(),
             meshes: MeshManager::new(),
+            pipelines: PipelineManager::new(),
             queue,
             shaders: ShaderManager::new(),
             surface,
             textures: TextureManager::new(),
+
+            current_frame: None,
         }
+    }
+
+    fn draw_mesh(&mut self, rpass: &mut wgpu::RenderPass, draw: &DrawMesh) {
+        let mesh = self.meshes.get_mesh(&draw.mesh).unwrap();
+        let material = self.materials.get_material(&draw.material).unwrap();
+        let shader = self.shaders.get_shader(&material.shader).unwrap();
+        let pipeline = self.pipelines.get_or_create_pipeline(&self.device, &shader);
+        
+        rpass.set_pipeline(&pipeline.pipeline);
+        rpass.set_bind_group(0, &material.bind_group, &[]);
+        rpass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+        rpass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
     }
 }
 
@@ -92,10 +111,56 @@ impl RendererBackend for Renderer {
     }
     
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]) {
-        println!("Executing {:?} commands for {:?}", cmds.len(), phase);
+        let frame = self.current_frame.get_or_insert_with(|| {
+            self.surface.get_current_texture()
+                .expect("Failed to acquire frame")
+        }); 
+
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some(&format!("Render {:?} Encode", phase)),
+        });
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),  
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            for cmd in cmds {
+                match cmd {
+                    DrawCommand::Mesh(mesh) => self.draw_mesh(&mut rpass, mesh),
+                }
+            }
+        }
+
+        self.queue.submit(Some(encoder.finish()));
     }
     
     fn present(&mut self) {
-        println!("Presenting frame");
+        if let Some(frame) = self.current_frame.take() {
+            frame.present();
+        }
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
     }
 }

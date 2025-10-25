@@ -79,7 +79,7 @@ impl TextureManager {
         self.next_id = self.next_id.next();
 
         self.textures.insert(handle, TextureInstance {
-           view: texture_view, 
+            view: texture_view, 
         });
 
         handle
