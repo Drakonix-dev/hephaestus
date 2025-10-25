@@ -1,9 +1,10 @@
-use crate::{platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, MaterialDefinition, MaterialHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
     device: wgpu::Device,
     materials: MaterialManager,
+    meshes: MeshManager,
     queue: wgpu::Queue,
     shaders: ShaderManager,
     surface: wgpu::Surface<'static>,
@@ -64,6 +65,7 @@ impl Renderer {
             config,
             device,
             materials: MaterialManager::new(),
+            meshes: MeshManager::new(),
             queue,
             shaders: ShaderManager::new(),
             surface,
@@ -75,6 +77,10 @@ impl Renderer {
 impl RendererBackend for Renderer {
     fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle {
         self.materials.create_material(&self.device, &self.shaders, &self.textures, def)
+    }
+
+    fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle {
+        self.meshes.create_mesh(&self.device, def)
     }
 
     fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle {
