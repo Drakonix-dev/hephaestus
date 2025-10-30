@@ -67,12 +67,18 @@ pub(crate) trait RendererBackend {
     fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle;
 }
 
+pub struct RenderSubmission {
+    pub renderables: Vec<Box<dyn Renderable>>,
+    pub manual_draws: Option<Box<dyn FnOnce(&mut RenderContext) + Send>>,
+}
+
 // Renderer defines the type that performs all the rendering.
 pub struct Renderer {
     backend: Box<dyn RendererBackend>,
     next_phase_order: Vec<RenderPhase>,
     phase_order: Vec<RenderPhase>,
     phases: HashMap<RenderPhase, Vec<DrawCommand>>,
+    queued_submissions: Vec<RenderSubmission>,
 }
 
 impl Renderer {
@@ -90,6 +96,7 @@ impl Renderer {
             next_phase_order: Vec::new(),
             phase_order,
             phases: HashMap::new(),
+            queued_submissions: Vec::new(),
         }
     }
 
@@ -122,22 +129,41 @@ impl Renderer {
     fn finish_frame(&mut self) {
         self.backend.present();
     }
+    
+    pub fn queue_render(
+        &mut self,
+        renderables: Vec<Box<dyn Renderable>>,
+        manual_draws: Option<Box<dyn FnOnce(&mut RenderContext) + Send>>,
+    ) {
+        self.queued_submissions.push(RenderSubmission {
+            renderables,
+            manual_draws,
+        })
+    }
 
-    pub fn render<F: FnOnce(&mut RenderContext)>(&mut self, world: &World, renderables: &[Box<dyn Renderable>], manual_draws: F) {
+    pub(crate) fn render(&mut self, world: &World) {
         if !self.next_phase_order.is_empty() {
             self.phase_order = take(&mut self.next_phase_order);
         }
         
         self.begin_frame();
 
-        manual_draws(&mut RenderContext { phases: &mut self.phases });
+        let submissions = take(&mut self.queued_submissions);
+        for submission in submissions {
+            if let Some(draw_fn) = submission.manual_draws {
+                draw_fn(&mut RenderContext { phases: &mut self.phases });
+            }
+
+            for r in &submission.renderables {
+                for &phase in &self.phase_order {
+                    let cmds = self.phases.entry(phase).or_default();
+                    cmds.append(&mut r.draw(world, phase));
+                }
+            }
+        }
         
         for &phase in self.phase_order.iter() {
             let cmds = self.phases.entry(phase).or_default();
-            
-            for r in renderables {
-                cmds.append(&mut r.draw(world, phase));
-            }
 
             // TODO: draw entities in world.
 

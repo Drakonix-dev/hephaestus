@@ -5,6 +5,7 @@ pub mod core;
 
 pub(crate) mod macros;
 
+mod buffer;
 mod platform;
 mod renderer;
 
