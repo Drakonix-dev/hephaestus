@@ -9,6 +9,7 @@ pub struct Renderer {
     queue: wgpu::Queue,
     shaders: ShaderManager,
     surface: wgpu::Surface<'static>,
+    surface_format: wgpu::TextureFormat,
     textures: TextureManager,
 
     current_frame: Option<wgpu::SurfaceTexture>,
@@ -76,6 +77,7 @@ impl Renderer {
             queue,
             shaders: shaders,
             surface,
+            surface_format,
             textures: TextureManager::new(),
 
             current_frame: None,
@@ -86,7 +88,7 @@ impl Renderer {
         let mesh = self.meshes.get_mesh(&draw.mesh).unwrap();
         let material = self.materials.get_material(&draw.material).unwrap();
         let shader = self.shaders.get_shader(&material.shader).unwrap();
-        let pipeline = self.pipelines.get_or_create_pipeline(&self.device, &shader);
+        let pipeline = self.pipelines.get_or_create_pipeline(self.surface_format, &self.device, &shader);
         
         rpass.set_pipeline(&pipeline.pipeline);
         rpass.set_bind_group(0, &material.bind_group, &[]);

@@ -60,7 +60,7 @@ impl ShaderManager {
                     ty: BindingType::UniformBuffer {
                         has_dynamic_offset: false,
                         min_binding_size: Some(NonZeroU64::new(
-                            mem::size_of::<MaterialUniforms> as u64,     
+                            mem::size_of::<MaterialUniforms>() as u64,     
                         ).unwrap()),
                     },
                     visibility: ShaderStage::VertexFragment,

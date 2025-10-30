@@ -17,7 +17,7 @@ impl PipelineManager {
         }
     }
 
-    fn create_pipeline(&mut self, device: &wgpu::Device, shader: &ShaderInstance) -> PipelineInstance {
+    fn create_pipeline(&mut self, format: wgpu::TextureFormat, device: &wgpu::Device, shader: &ShaderInstance) -> PipelineInstance {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
             bind_group_layouts: &[&shader.layout],
@@ -25,7 +25,7 @@ impl PipelineManager {
         });
 
         let vertex_buffer_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex> as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![
                 0 => Float32x3, // position
@@ -48,7 +48,7 @@ impl PipelineManager {
                 entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                    format: format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -63,9 +63,9 @@ impl PipelineManager {
         PipelineInstance { pipeline }
     }
 
-    pub(crate) fn get_or_create_pipeline(&mut self, device: &wgpu::Device, shader: &ShaderInstance) -> &PipelineInstance {
+    pub(crate) fn get_or_create_pipeline(&mut self, format: wgpu::TextureFormat, device: &wgpu::Device, shader: &ShaderInstance) -> &PipelineInstance {
         if  !self.pipelines.contains_key(&shader.handle) {
-            let pipeline = self.create_pipeline(device, shader);
+            let pipeline = self.create_pipeline(format, device, shader);
             self.pipelines.insert(shader.handle, pipeline);
         }
         
