@@ -1,4 +1,4 @@
-use crate::{builtin::BuiltinShader, platform::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, rendering::{DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{builtin::BuiltinShader, platform::core::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, rendering::{commands::{DrawCommand, DrawMesh}, RenderPhase, RendererBackend}};
 
 pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
@@ -99,25 +99,25 @@ impl Renderer {
 }
 
 impl RendererBackend for Renderer {
-    fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle {
-        self.shaders.get_builtin(shader)
-    }
-    
-    fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle {
-        self.materials.create_material(&self.device, &self.shaders, &self.textures, def)
-    }
-
-    fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle {
-        self.meshes.create_mesh(&self.device, def)
-    }
-
-    fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle {
-        self.shaders.create_shader(&self.device, def)
-    }
-
-    fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle {
-        self.textures.create_texture(&self.device, &self.queue, def)
-    }
+    // fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle {
+    //     self.shaders.get_builtin(shader)
+    // }
+    //
+    // fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle {
+    //     self.materials.create_material(&self.device, &self.shaders, &self.textures, def)
+    // }
+    //
+    // fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle {
+    //     self.meshes.create_mesh(&self.device, def)
+    // }
+    //
+    // fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle {
+    //     self.shaders.create_shader(&self.device, def)
+    // }
+    //
+    // fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle {
+    //     self.textures.create_texture(&self.device, &self.queue, def)
+    // }
     
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]) {
         let frame = self.current_frame.get_or_insert_with(|| {

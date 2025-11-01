@@ -1,7 +1,7 @@
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
-use crate::{app::{Application, ApplicationContext}, core::{ecs::World, events::Event}, platform::{WindowHandle, WindowInfo}, renderer::wgpu::Renderer as WgpuRenderer, rendering::Renderer};
+use crate::{app::{Application, ApplicationContext}, assets::AssetManager, core::{ecs::World, events::Event}, platform::core::{WindowHandle, WindowInfo}, renderer::wgpu::Renderer as WgpuRenderer, rendering::Renderer};
 
 pub(crate) struct WinitPlatform;
 
@@ -20,16 +20,22 @@ impl WinitPlatform {
 
 struct AppHandler<A: Application + 'static> {
     app: A,
-    ctx: Option<ApplicationContext>,
+    assets: Option<AssetManager>,
+    initialized: bool,
+    renderer: Option<Renderer>,
     window: Option<Window>,
+    world: Option<World>,
 }
 
 impl<A: Application + 'static> AppHandler<A> {
     fn new(app: A) -> Self {
         Self {
             app,
-            ctx: None,
+            assets: None,
+            initialized: false,
+            renderer: None,
             window: None,
+            world: None,
         }
     }
 }
@@ -51,17 +57,22 @@ impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
             height: window.inner_size().height,
         };
 
-        let renderer = pollster::block_on(WgpuRenderer::new(&handle, info));
+        let wgpu_renderer = pollster::block_on(WgpuRenderer::new(&handle, info));
         
-        let mut ctx = ApplicationContext {
-            renderer: Renderer::new(Box::new(renderer)),
-            world: World::new(),
+        self.assets = Some(AssetManager::new(Box::new(wgpu_renderer)));
+        self.renderer = Some(Renderer::new(Box::new(wgpu_renderer)));
+        self.window = Some(window);
+        self.world = Some(World::new());
+
+        let ctx = ApplicationContext {
+            assets: &self.assets.unwrap(),
+            rendering: &self.renderer.unwrap(),
+            world: &mut self.world.unwrap(),
         };
 
         self.app.init(&mut ctx);
-        
-        self.ctx = Some(ctx);
-        self.window = Some(window);
+
+        self.initialized = true;
     }
 
     fn window_event(
@@ -74,22 +85,25 @@ impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
             return;
         };
 
-        if let Some(ctx) = self.ctx.as_mut() {
-            self.app.handle_event(ctx, event);
-            
-            match event {
-                Event::Resized(w, h) => ctx.renderer.resize(w, h),
-                _ => {},
-            };
+        if !self.initialized {
+            return;
         }
+
+        let ctx = ApplicationContext {
+            assets: self.assets.as_ref().unwrap(),
+            rendering: self.renderer.as_ref().unwrap(),
+            world:  self.world.as_mut().unwrap(),
+        };
+
+        self.app.handle_event(&ctx, event);
     }
 }
 
 fn get_window_event(evt: &WindowEvent) -> Option<Event> {
     match evt {
-        WindowEvent::Resized(size) => Some(Event::Resized(size.width, size.height)),
-        WindowEvent::RedrawRequested => Some(Event::Redraw),
-        WindowEvent::CloseRequested => Some(Event::CloseRequested),
+        // WindowEvent::Resized(size) => Some(Event::Resized(size.width, size.height)),
+        // WindowEvent::RedrawRequested => Some(Event::Redraw),
+        WindowEvent::CloseRequested => Some(Event::Quit),
         _ => None,
     }
 }

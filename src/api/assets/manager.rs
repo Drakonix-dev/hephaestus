@@ -14,6 +14,10 @@ pub struct AssetManager {
 }
 
 impl AssetManager {
+    pub(crate) fn new(backend: Box<dyn AssetManagerBackend>) -> Self {
+        Self { backend }
+    }
+    
     pub fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle {
         self.backend.builtin_shader(shader)
     }

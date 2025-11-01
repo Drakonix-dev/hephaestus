@@ -7,7 +7,7 @@ pub trait Application {
 }
 
 pub struct ApplicationContext<'a> {
-    pub assets: AssetManager,
-    pub rendering: Renderer,
+    pub assets: &'a AssetManager,
+    pub rendering: &'a Renderer,
     pub world: &'a mut World,
 }
