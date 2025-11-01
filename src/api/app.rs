@@ -1,11 +1,13 @@
-use crate::{assets::AssetManager, core::{ecs::World, events::Event}};
+use crate::{assets::AssetManager, core::{ecs::World, events::Event}, rendering::Renderer};
 
 pub trait Application {
-    fn init(&mut self, ctx: ApplicationContext, world: &mut World);
-    fn handle_event(&mut self, world: &mut World, event: Event);
-    fn update(&mut self, world: &mut World, dt: f32);
+    fn init(&mut self, ctx: &ApplicationContext);
+    fn handle_event(&mut self, ctx: &ApplicationContext, event: Event);
+    fn update(&mut self, ctx: &ApplicationContext, dt: f32);
 }
 
-pub struct ApplicationContext {
+pub struct ApplicationContext<'a> {
     pub assets: AssetManager,
+    pub rendering: Renderer,
+    pub world: &'a mut World,
 }

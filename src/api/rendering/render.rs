@@ -1,6 +1,6 @@
 use std::{collections::HashMap, mem::take};
 
-use crate::{core::ecs::World, rendering::DrawMesh};
+use crate::{core::ecs::World, rendering::commands::DrawCommand};
 
 // RenderPhase defines a phase of rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,11 +30,6 @@ pub enum SubPhase {
     Opaque,
     Transparent,
     Other(u32),
-}
-
-// DrawCommand defines a command that can be translated to GPU calls.
-pub enum DrawCommand {
-    Mesh(DrawMesh),
 }
 
 // Renderable defines something that can be rendered.

@@ -1,4 +1,4 @@
-use crate::{builtin::BuiltinShader, rendering::{MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{assets::{MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}, builtin::BuiltinShader};
 
 pub(crate) trait AssetManagerBackend {
     fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle;
