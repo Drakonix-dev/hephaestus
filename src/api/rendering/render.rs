@@ -1,6 +1,6 @@
 use std::{collections::HashMap, mem::take};
 
-use crate::{builtin::BuiltinShader, core::ecs::World, rendering::{DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{core::ecs::World, rendering::DrawMesh};
 
 // RenderPhase defines a phase of rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,13 +58,6 @@ pub(crate) trait RendererBackend {
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]);
     fn present(&mut self);
     fn resize(&mut self, width: u32, height: u32);
-    
-    fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle;
-    
-    fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle;
-    fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle;
-    fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle;
-    fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle;
 }
 
 pub struct RenderSubmission {
@@ -104,26 +97,6 @@ impl Renderer {
         for v in self.phases.values_mut() {
             v.clear();
         }
-    }
-
-    pub fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle {
-        self.backend.builtin_shader(shader)
-    }
-    
-    pub fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle {
-        self.backend.create_material(def)
-    }
-
-    pub fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle {
-        self.backend.create_mesh(def)
-    }
-
-    pub fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle {
-        self.backend.create_shader(def)
-    }
-
-    pub fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle {
-        self.backend.create_texture(def)
     }
 
     fn finish_frame(&mut self) {
