@@ -6,7 +6,11 @@ macro_rules! define_handle {
 
         impl $name {
             pub(crate) fn new() -> Self { Self(1) }
-            pub(crate) fn next(self) -> Self { Self(self.0 + 1) }
+            pub(crate) fn next(&mut self) -> Self {
+                let handle = self.0 + 1;
+                self.0 += 1;
+                Self(handle)
+            }
         }
     };
 }
