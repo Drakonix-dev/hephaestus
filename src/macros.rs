@@ -26,11 +26,11 @@ macro_rules! define_wrapper {
         }
 
         // Wrapper struct
-        pub struct $name {
-            backend: Box<dyn $trait_name>,
+        pub struct $name<'a>{
+            backend: &'a dyn $trait_name,
         }
 
-        impl $name {
+        impl<'a> $name<'a> {
             pub(crate) fn new(backend: Box<dyn $trait_name>) -> Self {
                 Self { backend }
             }

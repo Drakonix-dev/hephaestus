@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
-use crate::{renderer::wgpu::{shader::ShaderManager, texture::TextureManager}, rendering::{MaterialDefinition, MaterialHandle, ShaderHandle}};
+use crate::{assets::{MaterialDefinition, MaterialHandle, ShaderHandle}, renderer::wgpu::{shader::ShaderManager, texture::TextureManager}};
 
 pub(crate) struct MaterialManager {
     materials: HashMap<MaterialHandle, MaterialInstance>,

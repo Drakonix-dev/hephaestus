@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{renderer::wgpu::shader::ShaderInstance, rendering::{ShaderHandle, Vertex}};
+use crate::{assets::{ShaderHandle, Vertex}, renderer::wgpu::shader::ShaderInstance};
 
 pub(crate) struct PipelineManager {
     pipelines: HashMap<ShaderHandle, PipelineInstance>,

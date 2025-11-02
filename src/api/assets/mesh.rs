@@ -5,7 +5,7 @@ use crate::{define_handle, define_wrapper};
 // MeshHandle defines a handle for a specific mesh.
 define_handle!(MeshHandle);
 
-define_wrapper!(MeshManager, MeshBackend, {
+define_wrapper!(MeshManager, MeshDevice, {
     fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle;
 });
 

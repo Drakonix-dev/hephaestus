@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs, num::NonZeroU64, mem};
 
-use crate::{builtin::BuiltinShader, rendering::{BindGroupLayout, BindingDesc, BindingType, MaterialUniforms, ShaderDefinition, ShaderHandle, ShaderStage}};
+use crate::{assets::{BindGroupLayout, BindingDesc, BindingType, MaterialUniforms, ShaderDefinition, ShaderHandle, ShaderStage}, builtin::BuiltinShader};
 
 pub(crate) struct ShaderManager {
     builtin: HashMap<BuiltinShader, ShaderHandle>,

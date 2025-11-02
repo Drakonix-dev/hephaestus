@@ -1,7 +1,7 @@
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
-use crate::{app::{Application, ApplicationContext}, assets::AssetManager, core::{ecs::World, events::Event}, platform::core::{WindowHandle, WindowInfo}, renderer::wgpu::Renderer as WgpuRenderer, rendering::Renderer};
+use crate::{app::{Application, ApplicationContext}, assets::{MaterialManager, MeshManager, ShaderManager, TextureManager}, core::{ecs::World, events::Event}, platform::core::{WindowHandle, WindowInfo}, renderer::wgpu::Renderer as WgpuRenderer, rendering::Renderer};
 
 pub(crate) struct WinitPlatform;
 
@@ -20,9 +20,12 @@ impl WinitPlatform {
 
 struct AppHandler<A: Application + 'static> {
     app: A,
-    assets: Option<AssetManager>,
     initialized: bool,
+    materials: Option<MaterialManager>,
+    meshes: Option<MeshManager>,
     renderer: Option<Renderer>,
+    shaders: Option<ShaderManager>,
+    textures: Option<TextureManager>,
     window: Option<Window>,
     world: Option<World>,
 }
@@ -31,9 +34,12 @@ impl<A: Application + 'static> AppHandler<A> {
     fn new(app: A) -> Self {
         Self {
             app,
-            assets: None,
             initialized: false,
+            materials: None,
+            meshes: None,
             renderer: None,
+            shaders: None,
+            textures: None,
             window: None,
             world: None,
         }
@@ -58,15 +64,21 @@ impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
         };
 
         let wgpu_renderer = pollster::block_on(WgpuRenderer::new(&handle, info));
-        
-        self.assets = Some(AssetManager::new(Box::new(wgpu_renderer)));
         self.renderer = Some(Renderer::new(Box::new(wgpu_renderer)));
+        
+        self.materials = Some(MaterialManager::new(&self.renderer));
+        self.meshes = Some(MeshManager::new(Box::new(wgpu_renderer)));
+        self.shaders = Some(ShaderManager::new(Box::new(wgpu_renderer)));
+        self.textures =  Some(TextureManager::new(Box::new(wgpu_renderer)));
         self.window = Some(window);
         self.world = Some(World::new());
 
         let ctx = ApplicationContext {
-            assets: &self.assets.unwrap(),
+            materials: &self.materials.unwrap(),
+            meshes: &self.meshes.unwrap(),
             rendering: &self.renderer.unwrap(),
+            shaders: &self.shaders.unwrap(),
+            textures: &self.textures.unwrap(),
             world: &mut self.world.unwrap(),
         };
 

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use image::ImageReader;
 
-use crate::rendering::{TextureDefinition, TextureDimension, TextureHandle};
+use crate::assets::{TextureDefinition, TextureDimension, TextureHandle};
 
 pub(crate) struct TextureManager {
     textures: HashMap<TextureHandle, TextureInstance>,

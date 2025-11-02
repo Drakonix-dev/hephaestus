@@ -5,7 +5,7 @@ use crate::{define_handle, define_wrapper};
 // TextureHandle defines a handle for a specific texture.
 define_handle!(TextureHandle);
 
-define_wrapper!(TextureManager, TextureBackend, {
+define_wrapper!(TextureManager, TextureDevice, {
     fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle;
 });
 

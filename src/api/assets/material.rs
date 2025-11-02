@@ -5,7 +5,7 @@ use crate::{assets::{ShaderHandle, TextureHandle}, define_handle, define_wrapper
 // MaterialHandle defines a handle for a specific material.
 define_handle!(MaterialHandle);
 
-define_wrapper!(MaterialManager, MaterialManagerBackend, {
+define_wrapper!(MaterialManager, MaterialDevice, {
     fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle;
 });
 

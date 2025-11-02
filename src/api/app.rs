@@ -7,10 +7,10 @@ pub trait Application {
 }
 
 pub struct ApplicationContext<'a> {
-    pub materials: &'a MaterialManager,
-    pub meshes: &'a MeshManager,
-    pub rendering: &'a Renderer,
-    pub shaders: &'a ShaderManager,
-    pub textures: &'a TextureManager,
+    pub materials: &'a MaterialManager<'a>,
+    pub meshes: &'a MeshManager<'a>,
+    pub rendering: &'a Renderer<'a>,
+    pub shaders: &'a ShaderManager<'a>,
+    pub textures: &'a TextureManager<'a>,
     pub world: &'a mut World,
 }

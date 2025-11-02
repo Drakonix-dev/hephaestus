@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
-use crate::rendering::{MeshDefinition, MeshHandle};
+use crate::assets::{MeshDefinition, MeshHandle};
 
 pub(crate) struct MeshManager {
     meshes: HashMap<MeshHandle, MeshInstance>,

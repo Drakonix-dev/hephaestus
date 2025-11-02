@@ -1,4 +1,4 @@
-use crate::{builtin::BuiltinShader, platform::core::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, rendering::{commands::{DrawCommand, DrawMesh}, RenderPhase, RendererBackend}};
+use crate::{assets, builtin::BuiltinShader, platform::core::{WindowHandle, WindowInfo}, renderer::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, rendering::{commands::{DrawCommand, DrawMesh}, RenderPhase, RendererBackend}};
 
 pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
@@ -99,26 +99,6 @@ impl Renderer {
 }
 
 impl RendererBackend for Renderer {
-    // fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle {
-    //     self.shaders.get_builtin(shader)
-    // }
-    //
-    // fn create_material(&mut self, def: &MaterialDefinition) -> MaterialHandle {
-    //     self.materials.create_material(&self.device, &self.shaders, &self.textures, def)
-    // }
-    //
-    // fn create_mesh(&mut self, def: &MeshDefinition) -> MeshHandle {
-    //     self.meshes.create_mesh(&self.device, def)
-    // }
-    //
-    // fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle {
-    //     self.shaders.create_shader(&self.device, def)
-    // }
-    //
-    // fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle {
-    //     self.textures.create_texture(&self.device, &self.queue, def)
-    // }
-    
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]) {
         let frame = self.current_frame.get_or_insert_with(|| {
             self.surface.get_current_texture()
@@ -171,5 +151,33 @@ impl RendererBackend for Renderer {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
+    }
+}
+
+impl assets::MaterialBackend for Renderer {
+    fn create_material(&mut self, def: &assets::MaterialDefinition) -> assets::MaterialHandle {
+        self.materials.create_material(&self.device, &self.shaders, &self.textures, def)
+    }
+}
+
+impl assets::MeshBackend for Renderer {
+    fn create_mesh(&mut self, def: &assets::MeshDefinition) -> assets::MeshHandle {
+        self.meshes.create_mesh(&self.device, def)
+    }
+}
+
+impl assets::ShaderBackend for Renderer {
+    fn builtin_shader(&self, shader: &BuiltinShader) -> assets::ShaderHandle {
+        self.shaders.get_builtin(shader)
+    }
+
+    fn create_shader(&mut self, def: &assets::ShaderDefinition) -> assets::ShaderHandle {
+        self.shaders.create_shader(&self.device, def)
+    }
+}
+
+impl assets::TextureBackend for Renderer {
+    fn create_texture(&mut self, def: &assets::TextureDefinition) -> assets::TextureHandle {
+        self.textures.create_texture(&self.device, &self.queue, def)
     }
 }

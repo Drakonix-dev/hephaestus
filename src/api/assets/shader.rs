@@ -5,7 +5,7 @@ use crate::{builtin::BuiltinShader, define_handle, define_wrapper};
 // ShaderHandle defines a handle for a specific shader.
 define_handle!(ShaderHandle);
 
-define_wrapper!(ShaderManager, ShaderBackend, {
+define_wrapper!(ShaderManager, ShaderDevice, {
     fn builtin_shader(&self, shader: &BuiltinShader) -> ShaderHandle;
     fn create_shader(&mut self, def: &ShaderDefinition) -> ShaderHandle;
 });

@@ -61,15 +61,15 @@ pub struct RenderSubmission {
 }
 
 // Renderer defines the type that performs all the rendering.
-pub struct Renderer {
-    backend: Box<dyn RendererBackend>,
+pub struct Renderer<'a> {
+    backend: &'a dyn RendererBackend,
     next_phase_order: Vec<RenderPhase>,
     phase_order: Vec<RenderPhase>,
     phases: HashMap<RenderPhase, Vec<DrawCommand>>,
     queued_submissions: Vec<RenderSubmission>,
 }
 
-impl Renderer {
+impl<'a> Renderer<'a> {
     pub(crate) fn new(backend: Box<dyn RendererBackend>) -> Self {
         let phase_order = vec![
             RenderPhase::new(RenderDomain::World3D, Some(SubPhase::Opaque)),
