@@ -3,6 +3,7 @@ pub use api::*;
 
 pub mod core;
 
+#[proc_macro]
 pub(crate) mod macros;
 
 mod buffer;

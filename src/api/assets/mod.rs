@@ -1,6 +1,3 @@
-mod manager;
-pub use manager::*;
-
 mod material;
 pub use material::*;
 

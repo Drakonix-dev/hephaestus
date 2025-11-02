@@ -1,9 +1,13 @@
 use std::path::Path;
 
-use crate::define_handle;
+use crate::{define_handle, define_wrapper};
 
 // TextureHandle defines a handle for a specific texture.
 define_handle!(TextureHandle);
+
+define_wrapper!(TextureManager, TextureBackend, {
+    fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle;
+});
 
 pub struct TextureDefinition<'a> {
     pub depth: Option<u32>,

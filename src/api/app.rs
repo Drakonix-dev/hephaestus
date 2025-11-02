@@ -1,4 +1,4 @@
-use crate::{assets::AssetManager, core::{ecs::World, events::Event}, rendering::Renderer};
+use crate::{assets::{MaterialManager, MeshManager, ShaderManager, TextureManager}, core::{ecs::World, events::Event}, rendering::Renderer};
 
 pub trait Application {
     fn init(&mut self, ctx: &ApplicationContext);
@@ -7,7 +7,10 @@ pub trait Application {
 }
 
 pub struct ApplicationContext<'a> {
-    pub assets: &'a AssetManager,
+    pub materials: &'a MaterialManager,
+    pub meshes: &'a MeshManager,
     pub rendering: &'a Renderer,
+    pub shaders: &'a ShaderManager,
+    pub textures: &'a TextureManager,
     pub world: &'a mut World,
 }
