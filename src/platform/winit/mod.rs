@@ -55,7 +55,7 @@ impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
             .expect("failed to create window");
 
         let handle = WindowHandle::new(
-            window.display_handle().unwrap().as_raw(),  
+            window.display_handle().unwrap().as_raw(),
             window.window_handle().unwrap().as_raw(),
         );
         let info = WindowInfo {
