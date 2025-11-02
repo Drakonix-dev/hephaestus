@@ -52,7 +52,6 @@ impl<'a> RenderContext<'a> {
 pub(crate) trait RendererBackend {
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]);
     fn present(&mut self);
-    fn resize(&mut self, width: u32, height: u32);
 }
 
 pub struct RenderSubmission {
@@ -62,7 +61,7 @@ pub struct RenderSubmission {
 
 // Renderer defines the type that performs all the rendering.
 pub struct Renderer<'a> {
-    backend: &'a dyn RendererBackend,
+    backend: &'a mut dyn RendererBackend,
     next_phase_order: Vec<RenderPhase>,
     phase_order: Vec<RenderPhase>,
     phases: HashMap<RenderPhase, Vec<DrawCommand>>,
@@ -70,7 +69,7 @@ pub struct Renderer<'a> {
 }
 
 impl<'a> Renderer<'a> {
-    pub(crate) fn new(backend: Box<dyn RendererBackend>) -> Self {
+    pub(crate) fn new(backend: &'a mut dyn RendererBackend) -> Self {
         let phase_order = vec![
             RenderPhase::new(RenderDomain::World3D, Some(SubPhase::Opaque)),
             RenderPhase::new(RenderDomain::World3D, Some(SubPhase::Transparent)),
@@ -139,10 +138,6 @@ impl<'a> Renderer<'a> {
         } 
 
         self.finish_frame();
-    }
-
-    pub(crate) fn resize(&mut self, width: u32, height: u32) {
-        self.backend.resize(width, height)
     }
 
     pub fn set_phrase_order(&mut self, phases: Vec<RenderPhase>) {

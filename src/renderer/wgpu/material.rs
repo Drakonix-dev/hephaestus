@@ -2,11 +2,12 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
-use crate::{assets::{MaterialDefinition, MaterialHandle, ShaderHandle}, renderer::wgpu::{shader::ShaderManager, texture::TextureManager}};
+use crate::{assets::{MaterialDefinition, MaterialHandle, ShaderHandle}, renderer::wgpu::{shader::ShaderManager, texture::TextureManager, Surface}};
 
-pub(crate) struct MaterialManager {
+pub(crate) struct MaterialManager<'a> {
     materials: HashMap<MaterialHandle, MaterialInstance>,
     next_id: MaterialHandle,
+    surface: &'a Surface<'a>,
 }
 
 pub(crate) struct MaterialInstance {
@@ -14,11 +15,12 @@ pub(crate) struct MaterialInstance {
     pub(crate) shader: ShaderHandle,
 }
 
-impl MaterialManager {
-    pub(crate) fn new() -> Self {
+impl<'a> MaterialManager<'a> {
+    pub(crate) fn new(surface: &'a Surface<'a>) -> Self {
         Self {
             materials: HashMap::new(),
             next_id: MaterialHandle::new(),
+            surface,
         }
     }
 

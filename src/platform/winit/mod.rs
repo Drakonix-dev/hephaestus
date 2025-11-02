@@ -1,7 +1,6 @@
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
-use crate::{app::{Application, ApplicationContext}, assets::{MaterialManager, MeshManager, ShaderManager, TextureManager}, core::{ecs::World, events::Event}, platform::core::{WindowHandle, WindowInfo}, renderer::wgpu::Renderer as WgpuRenderer, rendering::Renderer};
+use crate::{app::{Application, ApplicationContext}, assets::{MaterialManager, MeshManager, ShaderManager, TextureManager}, core::{ecs::World, events::Event}, platform::core::WindowInfo, renderer::wgpu::Surface, rendering::Renderer};
 
 pub(crate) struct WinitPlatform;
 
@@ -18,19 +17,19 @@ impl WinitPlatform {
     }
 }
 
-struct AppHandler<A: Application + 'static> {
+struct AppHandler<'a, A: Application + 'static> {
     app: A,
     initialized: bool,
-    materials: Option<MaterialManager>,
-    meshes: Option<MeshManager>,
-    renderer: Option<Renderer>,
-    shaders: Option<ShaderManager>,
-    textures: Option<TextureManager>,
+    materials: Option<MaterialManager<'a>>,
+    meshes: Option<MeshManager<'a>>,
+    renderer: Option<Renderer<'a>>,
+    shaders: Option<ShaderManager<'a>>,
+    textures: Option<TextureManager<'a>>,
     window: Option<Window>,
     world: Option<World>,
 }
 
-impl<A: Application + 'static> AppHandler<A> {
+impl<'a, A: Application + 'static> AppHandler<'a, A> {
     fn new(app: A) -> Self {
         Self {
             app,
@@ -46,7 +45,7 @@ impl<A: Application + 'static> AppHandler<A> {
     }
 }
 
-impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
+impl<'a, A: Application + 'static> ApplicationHandler for AppHandler<'a, A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let attrs = Window::default_attributes()
             .with_title("Engine Window");
@@ -54,14 +53,10 @@ impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
             .create_window(attrs)
             .expect("failed to create window");
 
-        let handle = WindowHandle::new(
-            window.display_handle().unwrap().as_raw(),
-            window.window_handle().unwrap().as_raw(),
-        );
-        let info = WindowInfo {
+        let surface = Surface::new(&window, WindowInfo {
             width: window.inner_size().width,
             height: window.inner_size().height,
-        };
+        });
 
         let wgpu_renderer = pollster::block_on(WgpuRenderer::new(&handle, info));
         self.renderer = Some(Renderer::new(Box::new(wgpu_renderer)));

@@ -1,36 +1,3 @@
-use crate::platform::core::{WindowHandle, WindowInfo};
-
-pub struct Surface<'a> {
-    config: wgpu::SurfaceConfiguration,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    surface: wgpu::Surface<'a>,
-    surface_format: wgpu::TextureFormat,
-}
-
-impl<'a> Surface<'a> {
-    pub async fn new(window: &WindowHandle<'a>, info: WindowInfo) -> Self {
-        let instance = wgpu::Instance::default();
-        let target = wgpu::SurfaceTarget::Window(Box::new(window));
-        
-        let target = wgpu::SurfaceTargetUnsafe::RawHandle {
-            raw_display_handle: window.display_handle,
-            raw_window_handle: window.window_handle,
-        };
-        
-        // SAFETY: The display and window handles come from a live Winit window
-        // and are guaranteed to outlive the surface.
-        let surface = unsafe {
-          instance.create_surface_unsafe(target)
-              .expect("failed to create surface")
-        };
-
-        Self {
-            
-        }
-    }
-}
-
 // pub struct Renderer {
 //     config: wgpu::SurfaceConfiguration,
 //     device: wgpu::Device,

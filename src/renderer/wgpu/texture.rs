@@ -2,31 +2,34 @@ use std::collections::HashMap;
 
 use image::ImageReader;
 
-use crate::assets::{TextureDefinition, TextureDimension, TextureHandle};
+use crate::{assets::{TextureDefinition, TextureDevice, TextureDimension, TextureHandle}, renderer::wgpu::Surface};
 
-pub(crate) struct TextureManager {
-    textures: HashMap<TextureHandle, TextureInstance>,
+pub(crate) struct TextureManager<'a> {
     next_id: TextureHandle,
+    surface: &'a Surface<'a>,
+    textures: HashMap<TextureHandle, TextureInstance>,
 }
 
 pub(crate) struct TextureInstance {
     pub(crate) view: wgpu::TextureView,
 }
 
-impl TextureManager {
-    pub(crate) fn new() -> Self {
+impl<'a> TextureManager<'a> {
+    pub(crate) fn new(surface: &'a Surface<'a>) -> Self {
         Self {
-            textures: HashMap::new(),
             next_id: TextureHandle::new(),
+            surface,
+            textures: HashMap::new(),
         }
     }
 
-    pub(crate) fn create_texture(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        def: &TextureDefinition,
-    ) -> TextureHandle {
+    pub(crate) fn get_texture(&self, handle: &TextureHandle) -> Option<&TextureInstance> {
+        self.textures.get(handle)
+    }
+}
+
+impl<'a> TextureDevice for TextureManager<'a> {
+    fn create_texture(&mut self, def: &TextureDefinition) -> TextureHandle {
         let image = ImageReader::open(def.source)
             .expect("failed to open image")
             .decode()
@@ -42,7 +45,7 @@ impl TextureManager {
             TextureDimension::D3 => (wgpu::TextureDimension::D3, def.depth.unwrap()),
         };
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        let texture = self.surface.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Texture"), 
             size: wgpu::Extent3d {
                 width: width,
@@ -57,7 +60,7 @@ impl TextureManager {
             view_formats: &[],
         });
 
-        queue.write_texture(
+        self.surface.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,  
                 mip_level: 0,
@@ -83,9 +86,5 @@ impl TextureManager {
         });
 
         handle
-    }
-
-    pub(crate) fn get_texture(&self, handle: &TextureHandle) -> Option<&TextureInstance> {
-        self.textures.get(handle)
     }
 }
