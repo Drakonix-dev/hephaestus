@@ -2,9 +2,9 @@ mod api;
 
 pub(crate) mod backend;
 
-use std::{sync::mpsc::{channel, Receiver}, thread::{self, JoinHandle}};
-
 pub use api::*;
+
+use std::{collections::HashMap, mem::take, sync::mpsc::{channel, Receiver}, thread::{self, JoinHandle}};
 
 pub(crate) trait RendererBackend {
     fn begin_frame(&mut self);
@@ -18,20 +18,26 @@ pub(crate) trait RendererBackend {
 
 pub(crate) struct RendererThread {
     backend: Box<dyn RendererBackend + Send>,
+    phases: Vec<RenderPhase>,
     receiver: Receiver<RenderCommand>,
     staged_commands: Vec<RenderCommand>,
+    staged_draws: Vec<RenderCommand>,
 }
 
 impl RendererThread {
-    pub(crate) fn spawn(backend: Box<dyn RendererBackend + Send>) -> (RendererHandle, JoinHandle<()>) {
+    pub(crate) fn spawn(backend: Box<dyn RendererBackend + Send>, graph: RenderGraph) -> (RendererHandle, JoinHandle<()>) {
         let (sender, receiver) = channel();
         let handle = RendererHandle::new(sender);
+        let phases = graph.linearize()
+            .expect("Invalid RenderGraph");
 
         let join = thread::spawn(move || {
            let mut renderer = RendererThread {
                backend,
+               phases,
                receiver,
                staged_commands: Vec::new(),
+               staged_draws: Vec::new(),
            };
            renderer.run();
         });
@@ -60,13 +66,19 @@ impl RendererThread {
                 RenderCommand::CreateTexture(handle, def) => {
                     self.backend.create_texture(handle, def);
                 },
-                _ => {},
+                RenderCommand::Draw(_, _) => {
+                    self.staged_draws.push(cmd)
+                },
+                RenderCommand::Register(_) => {
+                    self.staged_draws.push(cmd)  
+                },
             }
         }
     }
 
     fn render(&mut self) {
-        
+        self.backend.begin_frame();
+        // TODO: this
     }
 
     fn run(&mut self) {
