@@ -6,7 +6,7 @@ mod mesh;
 mod shader;
 mod texture;
 
-use std::sync::mpsc::Sender;
+use std::{collections::HashMap, sync::mpsc::Sender};
 
 pub use builtin::*;
 pub use commands::*;
@@ -18,6 +18,7 @@ pub use texture::*;
 
 // RendererHandle defines the handle to the renderer.
 pub struct RendererHandle {
+    builtin_shaders: HashMap<BuiltinShader, ShaderHandle>,
     next_material_id: MaterialHandle,
     next_mesh_id: MeshHandle,
     next_shader_id: ShaderHandle,
@@ -27,13 +28,25 @@ pub struct RendererHandle {
 
 impl RendererHandle {
     pub(crate) fn new(sender: Sender<RenderCommand>) -> Self {
-        Self {
+        let mut handle = Self {
+            builtin_shaders: HashMap::new(),
             next_material_id: MaterialHandle::new(),
             next_mesh_id: MeshHandle::new(),
             next_shader_id: ShaderHandle::new(),
             next_texture_id: TextureHandle::new(),
             sender,
+        };
+
+        for (shader, def) in builtin_shader_definitions() {
+            let shader_handle = handle.create_shader(def);
+            handle.builtin_shaders.insert(shader, shader_handle);
         }
+
+        handle
+    }
+
+    pub fn builtin_shader(&self, shader: BuiltinShader) -> Option<&ShaderHandle> {
+        self.builtin_shaders.get(&shader)
     }
 
     pub fn create_material(&mut self, definition: MaterialDefinition) -> MaterialHandle {
