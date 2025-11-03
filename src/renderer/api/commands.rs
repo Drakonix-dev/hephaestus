@@ -2,28 +2,12 @@ use crate::{core::math::{Transform2D, Transform3D}, renderer::{MaterialDefinitio
 
 // RenderCommand defines a command for rendering.
 pub(crate) enum RenderCommand {
-    CreateMaterial {
-        handle: MaterialHandle,  
-        definition: MaterialDefinition,
-    },
-    CreateMesh {
-        handle: MeshHandle,  
-        definition: MeshDefinition,
-    },
-    CreateShader {
-        handle: ShaderHandle,
-        definition: ShaderDefinition,
-    },
-    CreateTexture {
-        handle: TextureHandle,
-        definition: TextureDefinition,
-    },
-    DrawFrame,
-    QueueDraw {
-        cmd: DrawCommand,
-        phase: RenderPhase,
-    },
-    Register(Box<dyn Renderable>),
+    CreateMaterial(MaterialHandle, MaterialDefinition),
+    CreateMesh(MeshHandle, MeshDefinition),
+    CreateShader(ShaderHandle, ShaderDefinition),
+    CreateTexture(TextureHandle, TextureDefinition),
+    Draw(RenderPhase, DrawCommand),
+    Register(Box<dyn Renderable + Send>),
 }
 
 // DrawCommand defines a command for drawing something to the window.
