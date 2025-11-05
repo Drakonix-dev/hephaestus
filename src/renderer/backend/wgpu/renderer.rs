@@ -94,26 +94,72 @@ impl<'a> Renderer<'a> {
 
 impl<'a> RendererBackend for Renderer<'a> {
     fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition) {
-        
+        self.materials.create_material(&self.device, &self.shaders, &self.textures, handle, &definition);
     }
     
     fn create_mesh(&mut self, handle: MeshHandle, definition: MeshDefinition) {
-        
+        self.meshes.create_mesh(&self.device, handle, &definition);
     }
     
     fn create_shader(&mut self, handle: ShaderHandle, definition: ShaderDefinition) {
-        
+        self.shaders.create_shader(&self.device, handle, &definition);
     }
     
     fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition) {
-        
+        self.textures.create_texture(&self.device, &self.queue, handle, &definition);
     }
     
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]) {
-        
+        let frame = self.current_frame.get_or_insert_with(|| {
+            self.surface.get_current_texture()
+                .expect("Failed to acquire frame")
+        });
+
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some(&format!("Render {:?} Encode", phase)),
+        });
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            for cmd in cmds {
+                match cmd {
+                    DrawCommand::Mesh(mesh) => self.draw_mesh(&mut rpass, mesh),
+                }
+            }
+        }
+
+        self.queue.submit(Some(encoder.finish()));
     }
     
     fn present_frame(&mut self) {
-        
+        if let Some(frame) = self.current_frame.take() {
+            frame.present();
+        }
+    }
+    
+    fn resize(&mut self, width: u32, height: u32) {
+        if width <= 0 || height <= 0 {
+            return;
+        }
+
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
     }
 }

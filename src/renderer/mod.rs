@@ -13,6 +13,7 @@ pub(crate) trait RendererBackend {
     fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition);
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]);
     fn present_frame(&mut self);
+    fn resize(&mut self, width: u32, height: u32);
 }
 
 pub(crate) struct RendererThread {
