@@ -7,13 +7,11 @@ pub use api::*;
 use std::{collections::HashMap, mem::swap, sync::{mpsc::channel, Arc, Mutex}, thread::{self, JoinHandle}};
 
 pub(crate) trait RendererBackend {
-    fn begin_frame(&mut self);
     fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition);
     fn create_mesh(&mut self, handle: MeshHandle, definition: MeshDefinition);
     fn create_shader(&mut self, handle: ShaderHandle, definition: ShaderDefinition);
     fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition);
     fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]);
-    fn init(&mut self);
     fn present_frame(&mut self);
 }
 
@@ -82,8 +80,6 @@ impl RendererThread {
     }
 
     fn render(&mut self) {
-        self.backend.begin_frame();
-
         for phase in &self.phases {
             if let Some(draws) = self.staged_draws.get_mut(phase) {
                 self.backend.execute_commands(*phase, draws);
@@ -95,8 +91,6 @@ impl RendererThread {
     }
 
     fn run(&mut self, staged_commands: Arc<Mutex<Vec<RenderCommand>>>) {
-        self.backend.init();
-
         let mut staged = Vec::new();
         
         loop {
