@@ -1,15 +1,15 @@
 mod api;
 pub use api::*;
 
-pub mod core;
+pub mod events;
+pub mod math;
 
 pub(crate) mod macros;
 
-mod buffer;
 mod platform;
 mod renderer;
 
-pub fn run<A: crate::app::Application + 'static>(app: A) {
+pub fn run<A: crate::Application + 'static>(app: A) {
     #[cfg(not(target_arch = "wasm32"))]
     crate::platform::winit::WinitPlatform::run(app);
 }

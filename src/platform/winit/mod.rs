@@ -1,15 +1,15 @@
 use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
-use crate::{app::{Application, ApplicationContext}, assets::{MaterialManager, MeshManager, ShaderManager, TextureManager}, core::{ecs::World, events::Event}, platform::core::WindowInfo, renderer::wgpu::Surface, rendering::Renderer};
+use crate::{events::Event, platform::core::WindowInfo, renderer::{backend::wgpu::Renderer, RenderGraph, RendererHandle, RendererThread}, Application, ApplicationContext};
 
 pub(crate) struct WinitPlatform;
 
 impl WinitPlatform {
-    pub fn run<A: Application + 'static>(app: A) {
+    pub fn run<A: Application + 'static>(app: A, graph: RenderGraph) {
         let event_loop = EventLoop::new().unwrap();
         event_loop.set_control_flow(ControlFlow::Poll);
 
-        let mut handler = AppHandler::new(app);
+        let mut handler = AppHandler::new(app, graph);
 
         if let Err(error) = event_loop.run_app(&mut handler) {
             panic!("error: {}", error);
@@ -17,35 +17,23 @@ impl WinitPlatform {
     }
 }
 
-struct AppHandler<'a, A: Application + 'static> {
+struct AppHandler<A: Application + 'static> {
     app: A,
-    initialized: bool,
-    materials: Option<MaterialManager<'a>>,
-    meshes: Option<MeshManager<'a>>,
-    renderer: Option<Renderer<'a>>,
-    shaders: Option<ShaderManager<'a>>,
-    textures: Option<TextureManager<'a>>,
-    window: Option<Window>,
-    world: Option<World>,
+    graph: RenderGraph,
+    renderer: Option<RendererHandle>,
 }
 
-impl<'a, A: Application + 'static> AppHandler<'a, A> {
-    fn new(app: A) -> Self {
+impl<A: Application + 'static> AppHandler<A> {
+    fn new(app: A, graph: RenderGraph) -> Self {
         Self {
             app,
-            initialized: false,
-            materials: None,
-            meshes: None,
+            graph,
             renderer: None,
-            shaders: None,
-            textures: None,
-            window: None,
-            world: None,
         }
     }
 }
 
-impl<'a, A: Application + 'static> ApplicationHandler for AppHandler<'a, A> {
+impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let attrs = Window::default_attributes()
             .with_title("Engine Window");
@@ -53,33 +41,20 @@ impl<'a, A: Application + 'static> ApplicationHandler for AppHandler<'a, A> {
             .create_window(attrs)
             .expect("failed to create window");
 
-        let surface = Surface::new(&window, WindowInfo {
+        let wgpu_renderer = pollster::block_on(Renderer::new(&window, WindowInfo {
             width: window.inner_size().width,
             height: window.inner_size().height,
-        });
-
+        }));
+        let (renderer_handle, join) = RendererThread::spawn(Box::new(wgpu_renderer), self.graph);
+        
         let wgpu_renderer = pollster::block_on(WgpuRenderer::new(&handle, info));
         self.renderer = Some(Renderer::new(Box::new(wgpu_renderer)));
-        
-        self.materials = Some(MaterialManager::new(&self.renderer));
-        self.meshes = Some(MeshManager::new(Box::new(wgpu_renderer)));
-        self.shaders = Some(ShaderManager::new(Box::new(wgpu_renderer)));
-        self.textures =  Some(TextureManager::new(Box::new(wgpu_renderer)));
-        self.window = Some(window);
-        self.world = Some(World::new());
 
         let ctx = ApplicationContext {
-            materials: &self.materials.unwrap(),
-            meshes: &self.meshes.unwrap(),
-            rendering: &self.renderer.unwrap(),
-            shaders: &self.shaders.unwrap(),
-            textures: &self.textures.unwrap(),
-            world: &mut self.world.unwrap(),
+            renderer: self.renderer.as_mut().unwrap(),
         };
 
         self.app.init(&mut ctx);
-
-        self.initialized = true;
     }
 
     fn window_event(

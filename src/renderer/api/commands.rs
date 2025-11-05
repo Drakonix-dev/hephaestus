@@ -1,4 +1,4 @@
-use crate::{core::math::{Transform2D, Transform3D}, renderer::{MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{math::{Transform2D, Transform3D}, renderer::{MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 // RenderCommand defines a command for rendering.
 pub(crate) enum RenderCommand {
