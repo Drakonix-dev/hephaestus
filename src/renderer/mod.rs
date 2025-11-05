@@ -4,7 +4,7 @@ pub(crate) mod backend;
 
 pub use api::*;
 
-use std::{collections::HashMap, mem::{swap, take}, sync::{mpsc::{channel, Receiver}, Arc, Mutex}, thread::{self, JoinHandle}, time::{Duration, Instant}};
+use std::{collections::HashMap, mem::swap, sync::{mpsc::channel, Arc, Mutex}, thread::{self, JoinHandle}};
 
 pub(crate) trait RendererBackend {
     fn begin_frame(&mut self);
@@ -97,27 +97,13 @@ impl RendererThread {
     fn run(&mut self, staged_commands: Arc<Mutex<Vec<RenderCommand>>>) {
         self.backend.init();
 
-        // 60 FPS
-        const FRAME_TIME: Duration = Duration::from_millis(1000 / 60);
-        let mut last_frame = Instant::now();
-
         let mut staged = Vec::new();
         
         loop {
-            let now = Instant::now();
-            if now - last_frame < FRAME_TIME {
-                thread::sleep(FRAME_TIME - (now - last_frame));
-            }
-            last_frame = Instant::now();
-
-            {
-                let mut cmds = staged_commands.lock().unwrap();
-                swap(&mut *cmds, &mut staged);
-            }
-
             let mut cmds = staged_commands.lock().unwrap();
+            swap(&mut *cmds, &mut staged);
             
-            self.process_staging_uploads(&mut cmds);
+            self.process_staging_uploads(&mut staged);
             self.render();
 
             staged.clear();
