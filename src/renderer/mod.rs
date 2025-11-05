@@ -4,7 +4,7 @@ pub(crate) mod backend;
 
 pub use api::*;
 
-use std::{collections::HashMap, mem::take, sync::mpsc::{channel, Receiver}, thread::{self, JoinHandle}};
+use std::{collections::HashMap, mem::{swap, take}, sync::{mpsc::{channel, Receiver}, Arc, Mutex}, thread::{self, JoinHandle}, time::{Duration, Instant}};
 
 pub(crate) trait RendererBackend {
     fn begin_frame(&mut self);
@@ -20,8 +20,6 @@ pub(crate) trait RendererBackend {
 pub(crate) struct RendererThread {
     backend: Box<dyn RendererBackend + Send>,
     phases: Vec<RenderPhase>,
-    receiver: Receiver<RenderCommand>,
-    staged_commands: Vec<RenderCommand>,
     staged_draws: HashMap<RenderPhase, Vec<DrawCommand>>,
 }
 
@@ -32,41 +30,31 @@ impl RendererThread {
         let phases = graph.linearize()
             .expect("Invalid RenderGraph");
 
+        let staged_consumer = Arc::new(Mutex::new(Vec::new()));
+        let staged = staged_consumer.clone();
+
+        thread::spawn(move || {
+            while let Ok(cmd) = receiver.recv() {
+                let mut staging = staged_consumer.lock().unwrap();
+                staging.push(cmd);
+            }
+        });
+
         let join = thread::spawn(move || {
            let mut renderer = RendererThread {
                backend,
                phases,
-               receiver,
-               staged_commands: Vec::new(),
                staged_draws: HashMap::new(),
            };
-           renderer.run();
+           
+           renderer.run(staged.clone());
         });
 
         (handle, join)
     }
 
-    fn collect_pending_commands(&mut self) {
-        while let Ok(cmd) = self.receiver.try_recv() {
-            match cmd {
-                RenderCommand::Draw(phase, draw) => {
-                    self.staged_draws.entry(phase).or_default().push(draw);
-                },
-                RenderCommand::Render(renderable) => {
-                    for &phase in self.phases.iter() {
-                        let cmds = self.staged_draws.entry(phase).or_default();
-                        cmds.append(&mut renderable.draw(phase));
-                    }
-                },
-                _ => {
-                    self.staged_commands.push(cmd);
-                },
-            }
-        }
-    }
-
-    fn process_staging_uploads(&mut self) {
-        for cmd in self.staged_commands.drain(..) {
+    fn process_staging_uploads(&mut self, staged_commands: &mut Vec<RenderCommand>) {
+        for cmd in staged_commands.drain(..) {
             match cmd {
                 RenderCommand::CreateMaterial(handle, def) => {
                     self.backend.create_material(handle, def);
@@ -80,30 +68,59 @@ impl RendererThread {
                 RenderCommand::CreateTexture(handle, def) => {
                     self.backend.create_texture(handle, def);
                 },
-                _ => {},
+                RenderCommand::Draw(phase, draw) => {
+                    self.staged_draws.entry(phase).or_default().push(draw);
+                },
+                RenderCommand::Render(renderable) => {
+                    for &phase in self.phases.iter() {
+                        let cmds = self.staged_draws.entry(phase).or_default();
+                        cmds.append(&mut renderable.draw(phase));
+                    }
+                }, 
             }
         }
     }
 
     fn render(&mut self) {
-        let mut frame_draws = take(&mut self.staged_draws);
         self.backend.begin_frame();
 
-        for &phase in self.phases.iter() {
-            let cmds = frame_draws.entry(phase).or_default();
-            self.backend.execute_commands(phase, &cmds);
+        for phase in &self.phases {
+            if let Some(draws) = self.staged_draws.get_mut(phase) {
+                self.backend.execute_commands(*phase, draws);
+                draws.clear();
+            }
         }
 
         self.backend.present_frame();
     }
 
-    fn run(&mut self) {
+    fn run(&mut self, staged_commands: Arc<Mutex<Vec<RenderCommand>>>) {
         self.backend.init();
+
+        // 60 FPS
+        const FRAME_TIME: Duration = Duration::from_millis(1000 / 60);
+        let mut last_frame = Instant::now();
+
+        let mut staged = Vec::new();
         
         loop {
-            self.collect_pending_commands();
-            self.process_staging_uploads();
+            let now = Instant::now();
+            if now - last_frame < FRAME_TIME {
+                thread::sleep(FRAME_TIME - (now - last_frame));
+            }
+            last_frame = Instant::now();
+
+            {
+                let mut cmds = staged_commands.lock().unwrap();
+                swap(&mut *cmds, &mut staged);
+            }
+
+            let mut cmds = staged_commands.lock().unwrap();
+            
+            self.process_staging_uploads(&mut cmds);
             self.render();
+
+            staged.clear();
         }
     }
 }
