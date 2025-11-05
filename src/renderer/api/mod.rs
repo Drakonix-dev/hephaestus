@@ -77,7 +77,7 @@ impl RendererHandle {
         self.sender.send(RenderCommand::Draw(phase, cmd));
     }
 
-    pub fn register(&self, renderable: Box<dyn Renderable + Send>) {
-        self.sender.send(RenderCommand::Register(renderable));
+    pub fn render(&self, renderable: Box<dyn Renderable + Send>) {
+        self.sender.send(RenderCommand::Render(renderable));
     }
 }

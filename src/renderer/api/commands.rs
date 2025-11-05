@@ -7,7 +7,7 @@ pub(crate) enum RenderCommand {
     CreateShader(ShaderHandle, ShaderDefinition),
     CreateTexture(TextureHandle, TextureDefinition),
     Draw(RenderPhase, DrawCommand),
-    Register(Box<dyn Renderable + Send>),
+    Render(Box<dyn Renderable + Send>),
 }
 
 // DrawCommand defines a command for drawing something to the window.

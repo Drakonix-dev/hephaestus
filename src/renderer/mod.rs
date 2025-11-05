@@ -12,6 +12,7 @@ pub(crate) trait RendererBackend {
     fn create_mesh(&mut self, handle: MeshHandle, definition: MeshDefinition);
     fn create_shader(&mut self, handle: ShaderHandle, definition: ShaderDefinition);
     fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition);
+    fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]);
     fn init(&mut self);
     fn present_frame(&mut self);
 }
@@ -21,7 +22,7 @@ pub(crate) struct RendererThread {
     phases: Vec<RenderPhase>,
     receiver: Receiver<RenderCommand>,
     staged_commands: Vec<RenderCommand>,
-    staged_draws: Vec<RenderCommand>,
+    staged_draws: HashMap<RenderPhase, Vec<DrawCommand>>,
 }
 
 impl RendererThread {
@@ -37,7 +38,7 @@ impl RendererThread {
                phases,
                receiver,
                staged_commands: Vec::new(),
-               staged_draws: Vec::new(),
+               staged_draws: HashMap::new(),
            };
            renderer.run();
         });
@@ -47,7 +48,20 @@ impl RendererThread {
 
     fn collect_pending_commands(&mut self) {
         while let Ok(cmd) = self.receiver.try_recv() {
-            self.staged_commands.push(cmd);
+            match cmd {
+                RenderCommand::Draw(phase, draw) => {
+                    self.staged_draws.entry(phase).or_default().push(draw);
+                },
+                RenderCommand::Render(renderable) => {
+                    for &phase in self.phases.iter() {
+                        let cmds = self.staged_draws.entry(phase).or_default();
+                        cmds.append(&mut renderable.draw(phase));
+                    }
+                },
+                _ => {
+                    self.staged_commands.push(cmd);
+                },
+            }
         }
     }
 
@@ -66,19 +80,21 @@ impl RendererThread {
                 RenderCommand::CreateTexture(handle, def) => {
                     self.backend.create_texture(handle, def);
                 },
-                RenderCommand::Draw(_, _) => {
-                    self.staged_draws.push(cmd)
-                },
-                RenderCommand::Register(_) => {
-                    self.staged_draws.push(cmd)  
-                },
+                _ => {},
             }
         }
     }
 
     fn render(&mut self) {
+        let mut frame_draws = take(&mut self.staged_draws);
         self.backend.begin_frame();
-        // TODO: this
+
+        for &phase in self.phases.iter() {
+            let cmds = frame_draws.entry(phase).or_default();
+            self.backend.execute_commands(phase, &cmds);
+        }
+
+        self.backend.present_frame();
     }
 
     fn run(&mut self) {
