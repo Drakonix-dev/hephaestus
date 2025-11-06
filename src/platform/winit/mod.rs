@@ -35,22 +35,21 @@ impl<A: Application + 'static> AppHandler<A> {
 
 impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let attrs = Window::default_attributes()
-            .with_title("Engine Window");
-        let window = event_loop
-            .create_window(attrs)
-            .expect("failed to create window");
+        let (renderer_handle, join) = RendererThread::spawn(self.graph, || {
+            let attrs = Window::default_attributes()
+                .with_title("Engine Window");
+            let window = event_loop
+                .create_window(attrs)
+                .expect("failed to create window");
+            
+            Box::new(pollster::block_on(Renderer::new(&window, WindowInfo {
+                width: window.inner_size().width,
+                height: window.inner_size().height,
+            })))
+        });
 
-        let wgpu_renderer = pollster::block_on(Renderer::new(&window, WindowInfo {
-            width: window.inner_size().width,
-            height: window.inner_size().height,
-        }));
-        let (renderer_handle, join) = RendererThread::spawn(Box::new(wgpu_renderer), self.graph);
-        
-        let wgpu_renderer = pollster::block_on(WgpuRenderer::new(&handle, info));
-        self.renderer = Some(Renderer::new(Box::new(wgpu_renderer)));
-
-        let ctx = ApplicationContext {
+        self.renderer = Some(renderer_handle);
+        let mut ctx = ApplicationContext {
             renderer: self.renderer.as_mut().unwrap(),
         };
 
@@ -63,29 +62,30 @@ impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        let Some(event) = get_window_event(&event) else {
+        let Some(mut renderer) = self.renderer.as_mut() else {
+            return;
+        };
+        
+        let Some(event) = get_window_event(&event, &renderer) else {
             return;
         };
 
-        if !self.initialized {
-            return;
-        }
-
         let ctx = ApplicationContext {
-            assets: self.assets.as_ref().unwrap(),
-            rendering: self.renderer.as_ref().unwrap(),
-            world:  self.world.as_mut().unwrap(),
+            renderer: &mut renderer,
         };
 
         self.app.handle_event(&ctx, event);
     }
 }
 
-fn get_window_event(evt: &WindowEvent) -> Option<Event> {
+fn get_window_event(evt: &WindowEvent, renderer: &RendererHandle) -> Option<Event> {
     match evt {
         // WindowEvent::Resized(size) => Some(Event::Resized(size.width, size.height)),
         // WindowEvent::RedrawRequested => Some(Event::Redraw),
-        WindowEvent::CloseRequested => Some(Event::Quit),
+        WindowEvent::CloseRequested => {
+            renderer.quit();
+            Some(Event::Quit)
+        },
         _ => None,
     }
 }

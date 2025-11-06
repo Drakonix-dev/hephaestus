@@ -80,4 +80,8 @@ impl RendererHandle {
     pub fn render(&self, renderable: Box<dyn Renderable + Send>) {
         self.sender.send(RenderCommand::Render(renderable));
     }
+
+    pub fn quit(&self) {
+        self.sender.send(RenderCommand::Quit);
+    }
 }

@@ -8,6 +8,7 @@ pub(crate) enum RenderCommand {
     CreateTexture(TextureHandle, TextureDefinition),
     Draw(RenderPhase, DrawCommand),
     Render(Box<dyn Renderable + Send>),
+    Quit,
 }
 
 // DrawCommand defines a command for drawing something to the window.

@@ -23,9 +23,12 @@ pub(crate) struct RendererThread {
 }
 
 impl RendererThread {
-    pub(crate) fn spawn(backend: Box<dyn RendererBackend + Send>, graph: RenderGraph) -> (RendererHandle, JoinHandle<()>) {
+    pub(crate) fn spawn<F>(graph: RenderGraph, create_backend: F) -> (RendererHandle, JoinHandle<()>)
+        where F: FnOnce() -> Box<dyn RendererBackend + Send> + Send + 'static,
+    {
         let (sender, receiver) = channel();
         let handle = RendererHandle::new(sender);
+        
         let phases = graph.linearize()
             .expect("Invalid RenderGraph");
 
@@ -35,16 +38,27 @@ impl RendererThread {
         thread::spawn(move || {
             while let Ok(cmd) = receiver.recv() {
                 let mut staging = staged_consumer.lock().unwrap();
+                
+                match cmd {
+                    RenderCommand::Quit => {
+                        staging.push(cmd);
+                        return;  
+                    },
+                    _ => {},
+                }
+                
                 staging.push(cmd);
             }
         });
 
         let join = thread::spawn(move || {
-           let mut renderer = RendererThread {
-               backend,
-               phases,
-               staged_draws: HashMap::new(),
-           };
+            let backend = create_backend();
+            
+            let mut renderer = RendererThread {
+                backend,
+                phases,
+                staged_draws: HashMap::new(),
+            };
            
            renderer.run(staged.clone());
         });
@@ -52,7 +66,7 @@ impl RendererThread {
         (handle, join)
     }
 
-    fn process_staging_uploads(&mut self, staged_commands: &mut Vec<RenderCommand>) {
+    fn process_staging_uploads(&mut self, staged_commands: &mut Vec<RenderCommand>) -> bool {
         for cmd in staged_commands.drain(..) {
             match cmd {
                 RenderCommand::CreateMaterial(handle, def) => {
@@ -76,8 +90,13 @@ impl RendererThread {
                         cmds.append(&mut renderable.draw(phase));
                     }
                 }, 
+                RenderCommand::Quit => {
+                    return true;
+                },
             }
         }
+
+        false
     }
 
     fn render(&mut self) {
@@ -98,7 +117,10 @@ impl RendererThread {
             let mut cmds = staged_commands.lock().unwrap();
             swap(&mut *cmds, &mut staged);
             
-            self.process_staging_uploads(&mut staged);
+            if self.process_staging_uploads(&mut staged) {
+                break;
+            }
+            
             self.render();
 
             staged.clear();
