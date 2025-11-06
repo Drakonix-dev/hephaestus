@@ -23,11 +23,11 @@ pub struct RendererHandle {
     next_mesh_id: MeshHandle,
     next_shader_id: ShaderHandle,
     next_texture_id: TextureHandle,
-    queue: Arc<RenderCommandQueue>,
+    queue: RenderCommandQueue,
 }
 
 impl RendererHandle {
-    pub(crate) fn new(queue: Arc<RenderCommandQueue>) -> Self {
+    pub(crate) fn new(queue: RenderCommandQueue) -> Self {
         let mut handle = Self {
             builtin_shaders: HashMap::new(),
             next_material_id: MaterialHandle::new(),

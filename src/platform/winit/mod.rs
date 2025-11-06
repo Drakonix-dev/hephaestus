@@ -1,6 +1,6 @@
 use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
-use crate::{events::Event, platform::core::WindowInfo, renderer::{backend::wgpu::Renderer, RenderGraph, RendererHandle, RendererThread}, Application, ApplicationContext};
+use crate::{events::Event, platform::core::WindowInfo, renderer::{backend::wgpu::Renderer as WgpuRenderer, RenderGraph, Renderer, RendererHandle}, Application, ApplicationContext};
 
 pub(crate) struct WinitPlatform;
 
@@ -35,20 +35,20 @@ impl<A: Application + 'static> AppHandler<A> {
 
 impl<A: Application + 'static> ApplicationHandler for AppHandler<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let (renderer_handle, join) = RendererThread::spawn(self.graph, || {
-            let attrs = Window::default_attributes()
-                .with_title("Engine Window");
-            let window = event_loop
-                .create_window(attrs)
-                .expect("failed to create window");
-            
-            Box::new(pollster::block_on(Renderer::new(&window, WindowInfo {
-                width: window.inner_size().width,
-                height: window.inner_size().height,
-            })))
-        });
+        let attrs = Window::default_attributes()
+            .with_title("Engine Window");
+        let window = event_loop
+            .create_window(attrs)
+            .expect("failed to create window");
+        
+        let mut backend = pollster::block_on(WgpuRenderer::new(&window, WindowInfo {
+            width: window.inner_size().width,
+            height: window.inner_size().height,
+        }));
+        
+        let renderer = Renderer::new(&mut backend, &self.graph);
 
-        self.renderer = Some(renderer_handle);
+        self.renderer = Some(handle);
         let mut ctx = ApplicationContext {
             renderer: self.renderer.as_mut().unwrap(),
         };

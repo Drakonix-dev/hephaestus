@@ -4,7 +4,7 @@ pub(crate) mod backend;
 
 pub use api::*;
 
-use std::{collections::HashMap, mem::swap, sync::{Arc, Mutex}, thread::{self}};
+use std::{collections::HashMap, sync::Arc};
 
 pub(crate) trait RendererBackend {
     fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition);
@@ -16,50 +16,34 @@ pub(crate) trait RendererBackend {
     fn resize(&mut self, width: u32, height: u32);
 }
 
-pub(crate) struct Renderer {
-    backend: Box<dyn RendererBackend>,
+pub(crate) struct Renderer<'a> {
+    backend: &'a mut dyn RendererBackend,
     phases: Vec<RenderPhase>,
-    staged_cmds: Arc<Mutex<Vec<RenderCommand>>>,
+    queue: Arc<RenderCommandQueue>,
     staged_draws: HashMap<RenderPhase, Vec<DrawCommand>>,
 }
 
-impl Renderer {
-    pub(crate) fn new(graph: RenderGraph, backend: Box<dyn RendererBackend>) -> (Self, RendererHandle) {
-        let queue = RenderCommandQueue::new();
-        let handle = RendererHandle::new(queue);
-        
+impl<'a> Renderer<'a> {
+    pub(crate) fn new(
+        backend: &'a mut dyn RendererBackend,
+        graph: &RenderGraph,
+        queue: Arc<RenderCommandQueue>,
+    ) -> Self {
         let phases = graph.linearize()
             .expect("Invalid RenderGraph");
 
-        let staged_consumer = Arc::new(Mutex::new(Vec::new()));
-        let staged = staged_consumer.clone();
-
-        thread::spawn(move || {
-            while let Ok(cmd) = receiver.recv() {
-                let mut staging = staged_consumer.lock().unwrap();
-                staging.push(cmd);
-            }
-        });
-
-        let renderer = Self {
+        Self {
             backend,
             phases,
-            staged_cmds: staged,
+            queue,
             staged_draws: HashMap::new(),
-        };
-
-        (renderer, handle)
+        }
     }
 
     pub(crate) fn redraw(&mut self) {
-        let mut staged = Vec::new();
+        let mut cmds = self.queue.swap();
         
-        {
-            let mut cmds = self.staged_cmds.lock().unwrap();   
-            swap(&mut *cmds, &mut staged);
-        }
-
-        self.process_staging_uploads(&mut staged);
+        self.process_staging_uploads(&mut cmds);
         self.render();
     }
 
