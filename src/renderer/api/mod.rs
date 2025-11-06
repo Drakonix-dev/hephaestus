@@ -14,7 +14,7 @@ pub use mesh::*;
 pub use shader::*;
 pub use texture::*;
 
-use std::{collections::HashMap, sync::mpsc::Sender};
+use std::{collections::HashMap, sync::Arc};
 
 // RendererHandle defines the handle to the renderer.
 pub struct RendererHandle {
@@ -23,18 +23,18 @@ pub struct RendererHandle {
     next_mesh_id: MeshHandle,
     next_shader_id: ShaderHandle,
     next_texture_id: TextureHandle,
-    sender: Sender<RenderCommand>,
+    queue: Arc<RenderCommandQueue>,
 }
 
 impl RendererHandle {
-    pub(crate) fn new(sender: Sender<RenderCommand>) -> Self {
+    pub(crate) fn new(queue: Arc<RenderCommandQueue>) -> Self {
         let mut handle = Self {
             builtin_shaders: HashMap::new(),
             next_material_id: MaterialHandle::new(),
             next_mesh_id: MeshHandle::new(),
             next_shader_id: ShaderHandle::new(),
             next_texture_id: TextureHandle::new(),
-            sender,
+            queue,
         };
 
         for (shader, def) in builtin_shader_definitions() {
@@ -51,37 +51,33 @@ impl RendererHandle {
 
     pub fn create_material(&mut self, definition: MaterialDefinition) -> MaterialHandle {
         let handle = self.next_material_id.next();
-        self.sender.send(RenderCommand::CreateMaterial(handle, definition));
+        self.queue.push(RenderCommand::CreateMaterial(handle, definition));
         handle
     }
     
     pub fn create_mesh(&mut self, definition: MeshDefinition) -> MeshHandle {
         let handle = self.next_mesh_id.next();
-        self.sender.send(RenderCommand::CreateMesh(handle, definition));
+        self.queue.push(RenderCommand::CreateMesh(handle, definition));
         handle
     }
 
     pub fn create_shader(&mut self, definition: ShaderDefinition) -> ShaderHandle {
         let handle = self.next_shader_id.next();
-        self.sender.send(RenderCommand::CreateShader(handle, definition));
+        self.queue.push(RenderCommand::CreateShader(handle, definition));
         handle
     }
 
     pub fn create_texture(&mut self, definition: TextureDefinition) -> TextureHandle {
         let handle = self.next_texture_id.next();
-        self.sender.send(RenderCommand::CreateTexture(handle, definition));
+        self.queue.push(RenderCommand::CreateTexture(handle, definition));
         handle
     }
 
-    pub fn draw(&self, phase: RenderPhase, cmd: DrawCommand) {
-        self.sender.send(RenderCommand::Draw(phase, cmd));
+    pub fn draw(&mut self, phase: RenderPhase, cmd: DrawCommand) {
+        self.queue.push(RenderCommand::Draw(phase, cmd));
     }
 
-    pub fn render(&self, renderable: Box<dyn Renderable + Send>) {
-        self.sender.send(RenderCommand::Render(renderable));
-    }
-
-    pub fn quit(&self) {
-        self.sender.send(RenderCommand::Quit);
+    pub fn render(&mut self, renderable: Box<dyn Renderable + Send>) {
+        self.queue.push(RenderCommand::Render(renderable));
     }
 }

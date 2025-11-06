@@ -1,3 +1,5 @@
+use std::{mem::take, sync::atomic::{AtomicUsize, Ordering}};
+
 use crate::{math::{Transform2D, Transform3D}, renderer::{MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 // RenderCommand defines a command for rendering.
@@ -8,7 +10,6 @@ pub(crate) enum RenderCommand {
     CreateTexture(TextureHandle, TextureDefinition),
     Draw(RenderPhase, DrawCommand),
     Render(Box<dyn Renderable + Send>),
-    Quit,
 }
 
 // DrawCommand defines a command for drawing something to the window.
@@ -33,4 +34,27 @@ pub trait Renderable {
 pub enum Transform {
     Transform2D(Transform2D),
     Transform3D(Transform3D),
+}
+
+pub(crate) struct RenderCommandQueue {
+    buffers: [Vec<RenderCommand>; 2],
+    read_idx: AtomicUsize,
+}
+
+impl RenderCommandQueue {
+    pub(crate) fn new() -> Self {
+        Self {
+            buffers: [Vec::new(), Vec::new()],
+            read_idx: AtomicUsize::new(0),
+        }
+    }
+    
+    pub(crate) fn push(&mut self, cmd: RenderCommand) {
+        self.buffers[1 - self.read_idx.load(Ordering::Relaxed)].
+            push(cmd)
+    }
+    
+    pub(crate) fn swap(&mut self) -> Vec<RenderCommand> {
+        take(&mut self.buffers[self.read_idx.swap(self.read_idx.load(Ordering::Acquire), Ordering::Release)])
+    }
 }

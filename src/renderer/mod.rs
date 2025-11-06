@@ -4,7 +4,7 @@ pub(crate) mod backend;
 
 pub use api::*;
 
-use std::{collections::HashMap, mem::swap, sync::{mpsc::channel, Arc, Mutex}, thread::{self, JoinHandle}};
+use std::{collections::HashMap, mem::swap, sync::{Arc, Mutex}, thread::{self}};
 
 pub(crate) trait RendererBackend {
     fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition);
@@ -16,18 +16,17 @@ pub(crate) trait RendererBackend {
     fn resize(&mut self, width: u32, height: u32);
 }
 
-pub(crate) struct RendererThread {
-    backend: Box<dyn RendererBackend + Send>,
+pub(crate) struct Renderer {
+    backend: Box<dyn RendererBackend>,
     phases: Vec<RenderPhase>,
+    staged_cmds: Arc<Mutex<Vec<RenderCommand>>>,
     staged_draws: HashMap<RenderPhase, Vec<DrawCommand>>,
 }
 
-impl RendererThread {
-    pub(crate) fn spawn<F>(graph: RenderGraph, create_backend: F) -> (RendererHandle, JoinHandle<()>)
-        where F: FnOnce() -> Box<dyn RendererBackend + Send> + Send + 'static,
-    {
-        let (sender, receiver) = channel();
-        let handle = RendererHandle::new(sender);
+impl Renderer {
+    pub(crate) fn new(graph: RenderGraph, backend: Box<dyn RendererBackend>) -> (Self, RendererHandle) {
+        let queue = RenderCommandQueue::new();
+        let handle = RendererHandle::new(queue);
         
         let phases = graph.linearize()
             .expect("Invalid RenderGraph");
@@ -38,35 +37,35 @@ impl RendererThread {
         thread::spawn(move || {
             while let Ok(cmd) = receiver.recv() {
                 let mut staging = staged_consumer.lock().unwrap();
-                
-                match cmd {
-                    RenderCommand::Quit => {
-                        staging.push(cmd);
-                        return;  
-                    },
-                    _ => {},
-                }
-                
                 staging.push(cmd);
             }
         });
 
-        let join = thread::spawn(move || {
-            let backend = create_backend();
-            
-            let mut renderer = RendererThread {
-                backend,
-                phases,
-                staged_draws: HashMap::new(),
-            };
-           
-           renderer.run(staged.clone());
-        });
+        let renderer = Self {
+            backend,
+            phases,
+            staged_cmds: staged,
+            staged_draws: HashMap::new(),
+        };
 
-        (handle, join)
+        (renderer, handle)
     }
 
-    fn process_staging_uploads(&mut self, staged_commands: &mut Vec<RenderCommand>) -> bool {
+    pub(crate) fn redraw(&mut self) {
+        let mut staged = Vec::new();
+        
+        {
+            let mut cmds = self.staged_cmds.lock().unwrap();   
+            swap(&mut *cmds, &mut staged);
+        }
+
+        self.process_staging_uploads(&mut staged);
+        self.render();
+    }
+
+    // ------------------------------------------------------------------------
+
+    fn process_staging_uploads(&mut self, staged_commands: &mut Vec<RenderCommand>) {
         for cmd in staged_commands.drain(..) {
             match cmd {
                 RenderCommand::CreateMaterial(handle, def) => {
@@ -90,13 +89,8 @@ impl RendererThread {
                         cmds.append(&mut renderable.draw(phase));
                     }
                 }, 
-                RenderCommand::Quit => {
-                    return true;
-                },
             }
         }
-
-        false
     }
 
     fn render(&mut self) {
@@ -108,22 +102,5 @@ impl RendererThread {
         }
 
         self.backend.present_frame();
-    }
-
-    fn run(&mut self, staged_commands: Arc<Mutex<Vec<RenderCommand>>>) {
-        let mut staged = Vec::new();
-        
-        loop {
-            let mut cmds = staged_commands.lock().unwrap();
-            swap(&mut *cmds, &mut staged);
-            
-            if self.process_staging_uploads(&mut staged) {
-                break;
-            }
-            
-            self.render();
-
-            staged.clear();
-        }
     }
 }
