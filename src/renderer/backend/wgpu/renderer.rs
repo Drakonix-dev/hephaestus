@@ -18,11 +18,11 @@ pub struct Renderer<'a> {
 }
 
 impl<'a> Renderer<'a> {
-    pub async fn new<T>(window: &'a T, info: WindowInfo) -> Self
-        where T: HasWindowHandle + HasDisplayHandle + Send + Sync
+    pub async fn new<T>(window: Box<T>, info: WindowInfo) -> Self
+        where T: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static
     {
         let instance = wgpu::Instance::default();
-        let target = wgpu::SurfaceTarget::Window(Box::new(window));
+        let target = wgpu::SurfaceTarget::Window(window);
         
         let surface = instance.create_surface(target)
             .expect("failed to create surface");

@@ -4,7 +4,7 @@ pub(crate) mod backend;
 
 pub use api::*;
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 pub(crate) trait RendererBackend {
     fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition);
@@ -16,18 +16,18 @@ pub(crate) trait RendererBackend {
     fn resize(&mut self, width: u32, height: u32);
 }
 
-pub(crate) struct Renderer<'a> {
-    backend: &'a mut dyn RendererBackend,
+pub(crate) struct Renderer<B: RendererBackend> {
+    backend: B,
     phases: Vec<RenderPhase>,
-    queue: Arc<RenderCommandQueue>,
+    queue: RenderQueueReader,
     staged_draws: HashMap<RenderPhase, Vec<DrawCommand>>,
 }
 
-impl<'a> Renderer<'a> {
+impl<B: RendererBackend> Renderer<B> {
     pub(crate) fn new(
-        backend: &'a mut dyn RendererBackend,
+        backend: B,
         graph: &RenderGraph,
-        queue: Arc<RenderCommandQueue>,
+        queue: RenderQueueReader,
     ) -> Self {
         let phases = graph.linearize()
             .expect("Invalid RenderGraph");
@@ -41,10 +41,14 @@ impl<'a> Renderer<'a> {
     }
 
     pub(crate) fn redraw(&mut self) {
-        let mut cmds = self.queue.swap();
+        let mut cmds = self.queue.drain();
         
         self.process_staging_uploads(&mut cmds);
         self.render();
+    }
+
+    pub(crate) fn resize(&mut self, width: u32, height: u32) {
+        self.backend.resize(width, height)
     }
 
     // ------------------------------------------------------------------------

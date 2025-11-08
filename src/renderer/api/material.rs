@@ -18,7 +18,7 @@ pub struct MaterialParams {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy, Default, Pod, Zeroable)]
 pub struct MaterialUniforms {
     pub base_color: [f32; 4],
     pub roughness: f32,

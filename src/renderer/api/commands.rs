@@ -1,4 +1,4 @@
-use std::{mem::take, sync::atomic::{AtomicUsize, Ordering}};
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::{math::{Transform2D, Transform3D}, renderer::{MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
@@ -36,25 +36,38 @@ pub enum Transform {
     Transform3D(Transform3D),
 }
 
-pub(crate) struct RenderCommandQueue {
-    buffers: [Vec<RenderCommand>; 2],
-    read_idx: AtomicUsize,
+pub(crate) struct RenderQueue;
+
+impl RenderQueue {
+    pub(crate) fn new() -> (RenderQueueWriter, RenderQueueReader) {
+        let (tx, rx) = mpsc::channel();
+        (RenderQueueWriter { tx }, RenderQueueReader { rx })
+    }
 }
 
-impl RenderCommandQueue {
-    pub(crate) fn new() -> Self {
-        Self {
-            buffers: [Vec::new(), Vec::new()],
-            read_idx: AtomicUsize::new(0),
+#[derive(Clone)]
+pub(crate) struct RenderQueueWriter {
+    tx: Sender<RenderCommand>,
+}
+
+impl RenderQueueWriter {
+    pub(crate) fn push(&self, cmd: RenderCommand) {
+        self.tx.send(cmd);
+    }
+}
+
+pub(crate) struct RenderQueueReader {
+    rx: Receiver<RenderCommand>,
+}
+
+impl RenderQueueReader {
+    pub(crate) fn drain(&self) -> Vec<RenderCommand> {
+        let mut cmds = Vec::new();
+        
+        while let Ok(cmd) = self.rx.try_recv() {
+            cmds.push(cmd);
         }
-    }
-    
-    pub(crate) fn push(&mut self, cmd: RenderCommand) {
-        self.buffers[1 - self.read_idx.load(Ordering::Relaxed)].
-            push(cmd)
-    }
-    
-    pub(crate) fn swap(&mut self) -> Vec<RenderCommand> {
-        take(&mut self.buffers[self.read_idx.swap(self.read_idx.load(Ordering::Acquire), Ordering::Release)])
+
+        cmds
     }
 }
