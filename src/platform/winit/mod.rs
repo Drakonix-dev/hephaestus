@@ -1,4 +1,4 @@
-use std::mem::{self};
+use std::{mem::{self}, sync::Arc};
 
 use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
@@ -38,6 +38,21 @@ impl<'a, A: Application> AppState<'a, A> {
 }
 
 impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
+    fn about_to_wait(&mut self, _: &ActiveEventLoop) {
+        match self {
+            AppState::Initialized(handler) => handler.window.request_redraw(),
+            _ => return,
+        };
+    }
+    
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        let handler = match self {
+            AppState::Initialized(handler) => handler,  
+            _ => return,
+        };
+        handler.app.quit();
+    }
+    
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         match self {
             AppState::Uninitialized { .. } => self.init(event_loop),
@@ -52,7 +67,7 @@ impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
         event: WindowEvent,
     ) {
         let handler = match self {
-            AppState::Initialized(app) => app,
+            AppState::Initialized(handler) => handler,
             _ => return,
         };
 
@@ -72,21 +87,22 @@ struct AppHandler<'a, A: Application> {
     app: A,
     renderer: Renderer<WgpuRenderer<'a>>,
     renderer_handle: RendererHandle,
+    window: Arc<Window>,
 }
 
 impl<'a, A: Application> AppHandler<'a, A> {
     fn new(app: A, event_loop: &ActiveEventLoop, graph: RenderGraph) -> Self {
         let attrs = Window::default_attributes()
             .with_title("Engine Window");
-        let window = event_loop
+        let window = Arc::new(event_loop
             .create_window(attrs)
-            .expect("failed to create window");
+            .expect("failed to create window"));
         let info = WindowInfo {
             width: window.inner_size().width,
             height: window.inner_size().height,
         };
         
-        let backend = pollster::block_on(WgpuRenderer::new(Box::new(window), info));
+        let backend = pollster::block_on(WgpuRenderer::new(Box::new(window.clone()), info));
         let (writer, reader) = RenderQueue::new();
         let renderer = Renderer::new(backend, &graph, reader);
         let renderer_handle = RendererHandle::new(writer);
@@ -95,6 +111,7 @@ impl<'a, A: Application> AppHandler<'a, A> {
             app,
             renderer,
             renderer_handle,
+            window,
         }
     }
 
@@ -104,7 +121,6 @@ impl<'a, A: Application> AppHandler<'a, A> {
                 self.renderer.resize(size.width, size.height);
                 Some(Event::Resized(size.width, size.height))
             },   
-            WindowEvent::CloseRequested => Some(Event::Quit),
             _ => None,
         }
     }
