@@ -1,6 +1,6 @@
-use std::{mem::{self}, sync::Arc};
+use std::{mem::{self}, sync::{atomic::{AtomicBool, Ordering}, Arc}};
 
-use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
+use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
 use crate::{events::Event, platform::core::WindowInfo, renderer::{backend::wgpu::Renderer as WgpuRenderer, RenderGraph, RenderQueue, Renderer, RendererHandle}, Application, ApplicationContext};
 
@@ -44,13 +44,22 @@ impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
             _ => return,
         };
     }
+
+    fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
     
     fn exiting(&mut self, _: &ActiveEventLoop) {
-        let handler = match self {
-            AppState::Initialized(handler) => handler,  
-            _ => return,
-        };
-        handler.app.quit();
+        let old = mem::replace(self, AppState::MaybeUninit);
+        
+        if let AppState::Initialized(mut handler) = old {
+            handler.app.quit();
+            handler.renderer.exit();
+            handler.closed.store(true, Ordering::Relaxed);
+
+            *self = AppState::Uninitialized {
+                app: handler.app,
+                graph: handler.graph,
+            }
+        }
     }
     
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -60,31 +69,46 @@ impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
         }
     }
 
-    fn window_event(
-        &mut self,
-        _event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         let handler = match self {
             AppState::Initialized(handler) => handler,
             _ => return,
         };
 
-        let Some(event) = handler.get_event(&event) else {
-            return;
-        };
+        if handler.closed.load(Ordering::Relaxed) {
+            return
+        }
 
         let ctx = ApplicationContext {
             renderer: &mut handler.renderer_handle,
         };
 
-        handler.app.handle_event(&ctx, event);
+        match event {
+            WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                event_loop.exit();
+            },
+            WindowEvent::RedrawRequested => {
+                handler.renderer.render(|phase| {
+                    handler.app.render(phase)
+                });
+                handler.window.request_redraw();
+            },
+            WindowEvent::Resized(size) => {
+                let width = size.width.max(1);
+                let height = size.height.max(1);
+                
+                handler.renderer.resize(width, height);
+                handler.app.handle_event(&ctx, Event::Resized(width, height));
+            },
+            _ => {},
+        }
     }
 }
 
 struct AppHandler<'a, A: Application> {
     app: A,
+    closed: AtomicBool,
+    graph: RenderGraph,
     renderer: Renderer<WgpuRenderer<'a>>,
     renderer_handle: RendererHandle,
     window: Arc<Window>,
@@ -106,22 +130,20 @@ impl<'a, A: Application> AppHandler<'a, A> {
         let (writer, reader) = RenderQueue::new();
         let renderer = Renderer::new(backend, &graph, reader);
         let renderer_handle = RendererHandle::new(writer);
-        
-        Self {
+
+        let mut handler = Self {
             app,
+            closed: AtomicBool::new(false),
+            graph,
             renderer,
             renderer_handle,
             window,
-        }
-    }
+        };
 
-    fn get_event(&mut self, event: &WindowEvent) -> Option<Event> {
-        match event {
-            WindowEvent::Resized(size) => {
-                self.renderer.resize(size.width, size.height);
-                Some(Event::Resized(size.width, size.height))
-            },   
-            _ => None,
-        }
+        handler.app.init(&ApplicationContext{
+            renderer: &mut handler.renderer_handle,
+        });
+
+        handler
     }
 }

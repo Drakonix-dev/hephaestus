@@ -109,7 +109,7 @@ impl<'a> RendererBackend for Renderer<'a> {
         self.textures.create_texture(&self.device, &self.queue, handle, &definition);
     }
     
-    fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]) {
+    fn execute_commands(&mut self, phase: &RenderPhase, cmds: &[DrawCommand]) {
         let frame = self.current_frame.get_or_insert_with(|| {
             self.surface.get_current_texture()
                 .expect("Failed to acquire frame")
@@ -145,6 +145,10 @@ impl<'a> RendererBackend for Renderer<'a> {
         }
 
         self.queue.submit(Some(encoder.finish()));
+    }
+
+    fn exit(&mut self) {
+        self.device.poll(wgpu::PollType::Wait);
     }
     
     fn present_frame(&mut self) {

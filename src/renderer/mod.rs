@@ -11,7 +11,8 @@ pub(crate) trait RendererBackend {
     fn create_mesh(&mut self, handle: MeshHandle, definition: MeshDefinition);
     fn create_shader(&mut self, handle: ShaderHandle, definition: ShaderDefinition);
     fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition);
-    fn execute_commands(&mut self, phase: RenderPhase, cmds: &[DrawCommand]);
+    fn execute_commands(&mut self, phase: &RenderPhase, cmds: &[DrawCommand]);
+    fn exit(&mut self);
     fn present_frame(&mut self);
     fn resize(&mut self, width: u32, height: u32);
 }
@@ -40,11 +41,30 @@ impl<B: RendererBackend> Renderer<B> {
         }
     }
 
-    pub(crate) fn redraw(&mut self) {
+    pub(crate) fn exit(&mut self) {
+        self.backend.exit()
+    }
+
+    pub(crate) fn render<F>(&mut self, phased_draws: F)
+        where F: FnMut(&RenderPhase) -> Option<Vec<DrawCommand>>
+    {
         let mut cmds = self.queue.drain();
+        let mut phased_draws = phased_draws;
         
         self.process_staging_uploads(&mut cmds);
-        self.render();
+        
+        for phase in &self.phases {
+            let mut extra = phased_draws(phase)
+                .unwrap_or_default();
+            
+            if let Some(draws) = self.staged_draws.get_mut(phase) {
+                extra.append(draws);
+            }
+            
+            self.backend.execute_commands(phase, &extra);
+        }
+
+        self.backend.present_frame(); 
     }
 
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
@@ -52,7 +72,7 @@ impl<B: RendererBackend> Renderer<B> {
     }
 
     // ------------------------------------------------------------------------
-
+    
     fn process_staging_uploads(&mut self, staged_commands: &mut Vec<RenderCommand>) {
         for cmd in staged_commands.drain(..) {
             match cmd {
@@ -79,16 +99,5 @@ impl<B: RendererBackend> Renderer<B> {
                 }, 
             }
         }
-    }
-
-    fn render(&mut self) {
-        for phase in &self.phases {
-            if let Some(draws) = self.staged_draws.get_mut(phase) {
-                self.backend.execute_commands(*phase, draws);
-                draws.clear();
-            }
-        }
-
-        self.backend.present_frame();
     }
 }

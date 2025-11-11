@@ -17,7 +17,6 @@ pub use texture::*;
 use std::collections::HashMap;
 
 // RendererHandle defines the handle to the renderer.
-#[derive(Clone)]
 pub struct RendererHandle {
     builtin_shaders: HashMap<BuiltinShader, ShaderHandle>,
     queue: RenderQueueWriter,
@@ -38,8 +37,9 @@ impl RendererHandle {
         handle
     }
 
-    pub fn builtin_shader(&self, shader: BuiltinShader) -> Option<&ShaderHandle> {
+    pub fn builtin_shader(&self, shader: BuiltinShader) -> &ShaderHandle {
         self.builtin_shaders.get(&shader)
+            .expect("failed to get builtin shader")
     }
 
     pub fn create_material(&self, definition: MaterialDefinition) -> MaterialHandle {
