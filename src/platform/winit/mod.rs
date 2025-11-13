@@ -2,7 +2,8 @@ use std::{mem::{self}, sync::atomic::{AtomicBool, Ordering}};
 
 use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
-use crate::{events::Event, platform::core::{HasWindowInfo, WindowInfo}, renderer::{backend::wgpu::Renderer as WgpuRenderer, RenderGraph, RenderQueue, Renderer, RendererHandle}, Application, ApplicationContext};
+use crate::{events::Event, platform::core::PlatformError, renderer::{backend::wgpu::Renderer as WgpuRenderer, RenderGraph, RenderQueue, Renderer, RendererHandle}, Application, ApplicationContext};
+use super::core;
 
 pub(crate) struct WinitPlatform;
 
@@ -32,7 +33,16 @@ impl<A: Application> AppState<A> {
         match mem::replace(self, AppState::MaybeUninit) {
             AppState::Initialized(_) => panic!("Already initialized"),
             AppState::Uninitialized { app, graph } => {
-                *self = Self::Initialized(AppHandler::new(app, event_loop, graph));
+                let handler = match AppHandler::new(app, event_loop, graph) {
+                    Ok(handler) => handler,
+                    Err((mut app, err)) => {
+                        app.handle_error(err);
+                        event_loop.exit();
+                        return
+                    },
+                };
+
+                *self = Self::Initialized(handler);
             },
             _ => {},
         }
@@ -112,12 +122,16 @@ struct AppHandler<A: Application> {
 }
 
 impl<A: Application> AppHandler<A> {
-    fn new(app: A, event_loop: &ActiveEventLoop, graph: RenderGraph) -> Self {
+    fn new(app: A, event_loop: &ActiveEventLoop, graph: RenderGraph) -> Result<Self, (A, core::PlatformError)> {
         let attrs = Window::default_attributes()
             .with_title("Engine Window");
-        let window = event_loop
-            .create_window(attrs)
-            .expect("failed to create window");
+
+        let window = match event_loop.create_window(attrs) {
+            Ok(window) => window,
+            Err(err) => {
+                return Err((app, err.into()))
+            }
+        };
 
         let backend = pollster::block_on(WgpuRenderer::new(window));
         let (writer, reader) = RenderQueue::new();
@@ -136,13 +150,13 @@ impl<A: Application> AppHandler<A> {
             renderer: &mut handler.renderer_handle,
         });
 
-        handler
+        Ok(handler)
     }
 }
 
-impl HasWindowInfo for Window {
-    fn get_window_info(&self) -> WindowInfo {
-        WindowInfo {
+impl core::HasWindowInfo for Window {
+    fn get_window_info(&self) -> core::WindowInfo {
+        core::WindowInfo {
             height: self.inner_size().height,
             width: self.inner_size().width,
         }
@@ -150,5 +164,11 @@ impl HasWindowInfo for Window {
 
     fn request_redraw(&self) {
         self.request_redraw()
+    }
+}
+
+impl From<winit::error::OsError> for PlatformError {
+    fn from(err: winit::error::OsError) -> Self {
+        Self::WindowCreationFailed(err.to_string())
     }
 }
