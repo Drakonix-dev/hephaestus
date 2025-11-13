@@ -20,7 +20,7 @@ pub struct Renderer<W>
     textures: TextureManager,
     window: Arc<W>,
 
-    current_frame: Option<wgpu::SurfaceTexture>,
+    current_frame: Option<RenderFrame>,
 }
 
 impl<W> Renderer<W>
@@ -150,30 +150,40 @@ impl<W> RendererBackend for Renderer<W>
             self.configure_surface();
         }
 
-        let mut load_op = true;
-        
         let frame = self.current_frame.get_or_insert_with(|| {
-            load_op = false;
-            
             self.window.request_redraw();
-            self.surface.get_current_texture()
-                .expect("Failed to acquire frame")
+            
+            let frame = self.surface.get_current_texture()
+                .expect("failed to acquire frame");
+            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            RenderFrame {
+                frame,
+                view,
+                first_pass: true,
+            }
         });
 
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some(&format!("Render {:?} Encode", phase)),
         });
+
+        let load_op = if frame.first_pass {
+            frame.first_pass = false;
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+        } else {
+            wgpu::LoadOp::Load
+        };
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &frame.view,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: if load_op { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::BLACK) },
+                        load: load_op,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -194,7 +204,7 @@ impl<W> RendererBackend for Renderer<W>
     
     fn present_frame(&mut self) {
         if let Some(frame) = self.current_frame.take() {
-            frame.present();
+            frame.frame.present();
         }
     }
     
@@ -215,4 +225,10 @@ impl<W> RendererBackend for Renderer<W>
             timeout: None,
         });
     }
+}
+
+struct RenderFrame {
+    first_pass: bool,
+    frame: wgpu::SurfaceTexture,
+    view: wgpu::TextureView,
 }
