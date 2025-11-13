@@ -12,9 +12,9 @@ pub(crate) trait RendererBackend {
     fn create_shader(&mut self, handle: ShaderHandle, definition: ShaderDefinition);
     fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition);
     fn execute_commands(&mut self, phase: &RenderPhase, cmds: &[DrawCommand]);
-    fn exit(&mut self);
     fn present_frame(&mut self);
     fn resize(&mut self, width: u32, height: u32);
+    fn shutdown(&mut self);
 }
 
 pub(crate) struct Renderer<B: RendererBackend> {
@@ -41,10 +41,6 @@ impl<B: RendererBackend> Renderer<B> {
         }
     }
 
-    pub(crate) fn exit(&mut self) {
-        self.backend.exit()
-    }
-
     pub(crate) fn render<F>(&mut self, phased_draws: F)
         where F: FnMut(&RenderPhase) -> Option<Vec<DrawCommand>>
     {
@@ -69,6 +65,10 @@ impl<B: RendererBackend> Renderer<B> {
 
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         self.backend.resize(width, height)
+    }
+
+    pub(crate) fn shutdown(&mut self) {
+        self.backend.shutdown();
     }
 
     // ------------------------------------------------------------------------

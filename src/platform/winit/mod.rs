@@ -1,8 +1,8 @@
-use std::{mem::{self}, sync::{atomic::{AtomicBool, Ordering}, Arc}};
+use std::{mem::{self}, sync::atomic::{AtomicBool, Ordering}};
 
 use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
-use crate::{events::Event, platform::core::WindowInfo, renderer::{backend::wgpu::Renderer as WgpuRenderer, RenderGraph, RenderQueue, Renderer, RendererHandle}, Application, ApplicationContext};
+use crate::{events::Event, platform::core::{HasWindowInfo, WindowInfo}, renderer::{backend::wgpu::Renderer as WgpuRenderer, RenderGraph, RenderQueue, Renderer, RendererHandle}, Application, ApplicationContext};
 
 pub(crate) struct WinitPlatform;
 
@@ -38,27 +38,27 @@ impl<'a, A: Application> AppState<'a, A> {
 }
 
 impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
-    fn about_to_wait(&mut self, _: &ActiveEventLoop) {
-        match self {
-            AppState::Initialized(handler) => handler.window.request_redraw(),
-            _ => return,
-        };
-    }
+    // fn about_to_wait(&mut self, _: &ActiveEventLoop) {
+    //     match self {
+    //         AppState::Initialized(handler) => handler.window.request_redraw(),
+    //         _ => return,
+    //     };
+    // }
 
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
     
     fn exiting(&mut self, _: &ActiveEventLoop) {
-        let old = mem::replace(self, AppState::MaybeUninit);
+        let old_state = mem::replace(self, AppState::MaybeUninit);
         
-        if let AppState::Initialized(mut handler) = old {
+        if let AppState::Initialized(mut handler) = old_state {
+            handler.closed.store(true, Ordering::SeqCst);
             handler.app.quit();
-            handler.renderer.exit();
-            handler.closed.store(true, Ordering::Relaxed);
+            handler.renderer.shutdown();
 
             *self = AppState::Uninitialized {
                 app: handler.app,
                 graph: handler.graph,
-            }
+            };
         }
     }
     
@@ -75,10 +75,6 @@ impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
             _ => return,
         };
 
-        if handler.closed.load(Ordering::Relaxed) {
-            return
-        }
-
         let ctx = ApplicationContext {
             renderer: &mut handler.renderer_handle,
         };
@@ -88,12 +84,19 @@ impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
                 event_loop.exit();
             },
             WindowEvent::RedrawRequested => {
+                if handler.closed.load(Ordering::SeqCst) {
+                    return
+                }
+                
                 handler.renderer.render(|phase| {
                     handler.app.render(phase)
                 });
-                handler.window.request_redraw();
             },
             WindowEvent::Resized(size) => {
+                if handler.closed.load(Ordering::SeqCst) {
+                    return
+                }
+                
                 let width = size.width.max(1);
                 let height = size.height.max(1);
                 
@@ -109,24 +112,19 @@ struct AppHandler<'a, A: Application> {
     app: A,
     closed: AtomicBool,
     graph: RenderGraph,
-    renderer: Renderer<WgpuRenderer<'a>>,
+    renderer: Renderer<WgpuRenderer<'a, Window>>,
     renderer_handle: RendererHandle,
-    window: Arc<Window>,
 }
 
 impl<'a, A: Application> AppHandler<'a, A> {
     fn new(app: A, event_loop: &ActiveEventLoop, graph: RenderGraph) -> Self {
         let attrs = Window::default_attributes()
             .with_title("Engine Window");
-        let window = Arc::new(event_loop
+        let window = event_loop
             .create_window(attrs)
-            .expect("failed to create window"));
-        let info = WindowInfo {
-            width: window.inner_size().width,
-            height: window.inner_size().height,
-        };
-        
-        let backend = pollster::block_on(WgpuRenderer::new(Box::new(window.clone()), info));
+            .expect("failed to create window");
+
+        let backend = pollster::block_on(WgpuRenderer::new(window));
         let (writer, reader) = RenderQueue::new();
         let renderer = Renderer::new(backend, &graph, reader);
         let renderer_handle = RendererHandle::new(writer);
@@ -137,7 +135,6 @@ impl<'a, A: Application> AppHandler<'a, A> {
             graph,
             renderer,
             renderer_handle,
-            window,
         };
 
         handler.app.init(&ApplicationContext{
@@ -146,4 +143,13 @@ impl<'a, A: Application> AppHandler<'a, A> {
 
         handler
     }
+}
+
+impl HasWindowInfo for Window {
+    fn get_window_info(&self) -> WindowInfo {
+        WindowInfo {
+            height: self.inner_size().height,
+            width: self.inner_size().width,
+        }
+    }   
 }

@@ -1,9 +1,14 @@
+use std::sync::Arc;
+
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
-use crate::{platform::core::WindowInfo, renderer::{backend::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{platform::core::HasWindowInfo, renderer::{backend::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
-pub struct Renderer<'a> {
-    config: wgpu::SurfaceConfiguration,
+pub struct Renderer<'a, W>
+    where W: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
+{
+    adapter: wgpu::Adapter,
+    config: Option<wgpu::SurfaceConfiguration>,
     device: wgpu::Device,
     materials: MaterialManager,
     meshes: MeshManager,
@@ -11,18 +16,21 @@ pub struct Renderer<'a> {
     queue: wgpu::Queue,
     shaders: ShaderManager,
     surface: wgpu::Surface<'a>,
-    surface_format: wgpu::TextureFormat,
+    surface_format: Option<wgpu::TextureFormat>,
     textures: TextureManager,
+    window: Arc<W>,
 
     current_frame: Option<wgpu::SurfaceTexture>,
 }
 
-impl<'a> Renderer<'a> {
-    pub async fn new<T>(window: Box<T>, info: WindowInfo) -> Self
-        where T: HasWindowHandle + HasDisplayHandle + Send + Sync + 'static
-    {
+impl<'a, W> Renderer<'a, W>
+    where W: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
+{
+    pub(crate) async fn new(window: W) -> Self {
+        let window_arc = Arc::new(window);
+        
         let instance = wgpu::Instance::default();
-        let target = wgpu::SurfaceTarget::Window(window);
+        let target = wgpu::SurfaceTarget::Window(Box::new(window_arc.clone()));
         
         let surface = instance.create_surface(target)
             .expect("failed to create surface");
@@ -41,29 +49,9 @@ impl<'a> Renderer<'a> {
             .await
             .expect("failed to get device");
 
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
-
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: info.width,
-            height: info.height,
-            present_mode: surface_caps.present_modes[0],
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-
-        surface.configure(&device, &config);
-
         Self {
-            config,
+            adapter,
+            config: None,
             device,
             materials: MaterialManager::new(),
             meshes: MeshManager::new(),
@@ -71,28 +59,69 @@ impl<'a> Renderer<'a> {
             queue,
             shaders: ShaderManager::new(),
             surface,
-            surface_format,
+            surface_format: None,
             textures: TextureManager::new(),
+            window: window_arc,
 
             current_frame: None,
         }
+    }
+
+    pub(crate) fn configure_surface(&mut self) {
+        let window_info = self.window.get_window_info();
+        
+        let caps = self.surface.get_capabilities(&self.adapter);
+        let format = caps.formats
+            .iter()
+            .find(|f| f.is_srgb())
+            .copied()
+            .unwrap_or(caps.formats[0]);
+        let present_mode = caps.present_modes
+            .first()
+            .copied()
+            .unwrap_or(wgpu::PresentMode::Fifo);
+        let alpha_mode = caps.alpha_modes
+            .first()
+            .copied()
+            .unwrap_or(wgpu::CompositeAlphaMode::Opaque);
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: format,
+            width: window_info.width.max(1),
+            height: window_info.height.max(1),
+            present_mode,
+            alpha_mode,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        self.surface.configure(&self.device, &config);
+        self.surface_format = Some(format);
+        self.config = Some(config);
     }
 
     fn draw_mesh(&mut self, rpass: &mut wgpu::RenderPass, draw: &DrawMesh) {
         let mesh = self.meshes.get_mesh(&draw.mesh).unwrap();
         let material = self.materials.get_material(&draw.material).unwrap();
         let shader = self.shaders.get_shader(&material.shader).unwrap();
-        let pipeline = self.pipelines.get_or_create_pipeline(self.surface_format, &self.device, &shader);
+        let pipeline = self.pipelines.get_or_create_pipeline(
+            self.surface_format.unwrap(), &self.device, &shader);
 
         rpass.set_pipeline(&pipeline.pipeline);
         rpass.set_bind_group(0, &material.bind_group, &[]);
         rpass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        rpass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
+
+        if mesh.index_count > 0 {
+            rpass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
     }
 }
 
-impl<'a> RendererBackend for Renderer<'a> {
+impl<'a, W> RendererBackend for Renderer<'a, W>
+    where W: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
+{
     fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition) {
         self.materials.create_material(&self.device, &self.shaders, &self.textures, handle, &definition);
     }
@@ -110,6 +139,10 @@ impl<'a> RendererBackend for Renderer<'a> {
     }
     
     fn execute_commands(&mut self, phase: &RenderPhase, cmds: &[DrawCommand]) {
+        if self.config.is_none() {
+            self.configure_surface();
+        }
+        
         let frame = self.current_frame.get_or_insert_with(|| {
             self.surface.get_current_texture()
                 .expect("Failed to acquire frame")
@@ -146,10 +179,6 @@ impl<'a> RendererBackend for Renderer<'a> {
 
         self.queue.submit(Some(encoder.finish()));
     }
-
-    fn exit(&mut self) {
-        self.device.poll(wgpu::PollType::Wait);
-    }
     
     fn present_frame(&mut self) {
         if let Some(frame) = self.current_frame.take() {
@@ -158,12 +187,20 @@ impl<'a> RendererBackend for Renderer<'a> {
     }
     
     fn resize(&mut self, width: u32, height: u32) {
-        if width <= 0 || height <= 0 {
-            return;
+        if self.config.is_none() {
+            self.configure_surface();
+            return
         }
 
-        self.config.width = width;
-        self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
+        self.config.as_mut().unwrap().width = width.max(1);
+        self.config.as_mut().unwrap().height = height.max(1);
+        self.surface.configure(&self.device, self.config.as_ref().unwrap());
+    }
+
+    fn shutdown(&mut self) {
+        self.device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
     }
 }
