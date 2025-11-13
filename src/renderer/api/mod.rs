@@ -16,6 +16,8 @@ pub use texture::*;
 
 use std::collections::HashMap;
 
+use crate::platform::core::PlatformError;
+
 // RendererHandle defines the handle to the renderer.
 pub struct RendererHandle {
     builtin_shaders: HashMap<BuiltinShader, ShaderHandle>,
@@ -37,9 +39,9 @@ impl RendererHandle {
         handle
     }
 
-    pub fn builtin_shader(&self, shader: BuiltinShader) -> &ShaderHandle {
+    pub fn builtin_shader(&self, shader: BuiltinShader) -> Result<&ShaderHandle, PlatformError> {
         self.builtin_shaders.get(&shader)
-            .expect("failed to get builtin shader")
+            .ok_or(PlatformError::AssetNotFound(shader.to_string()))
     }
 
     pub fn create_material(&self, definition: MaterialDefinition) -> MaterialHandle {

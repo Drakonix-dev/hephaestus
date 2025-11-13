@@ -92,10 +92,14 @@ impl <A: Application> ApplicationHandler for AppState<A> {
                 if handler.closed.load(Ordering::SeqCst) {
                     return
                 }
-                
-                handler.renderer.render(|phase| {
+
+                let res = handler.renderer.render(|phase| {
                     handler.app.render(phase)
                 });
+
+                if let Err(err) = res {
+                    handler.app.handle_error(err);
+                }
             },
             WindowEvent::Resized(size) => {
                 if handler.closed.load(Ordering::SeqCst) {
@@ -130,13 +134,19 @@ impl<A: Application> AppHandler<A> {
             Ok(window) => window,
             Err(err) => {
                 return Err((app, err.into()))
-            }
+            },
         };
 
         let backend = pollster::block_on(WgpuRenderer::new(window));
         let (writer, reader) = RenderQueue::new();
-        let renderer = Renderer::new(backend, &graph, reader);
         let renderer_handle = RendererHandle::new(writer);
+        
+        let renderer = match Renderer::new(backend, &graph, reader) {
+            Ok(renderer) => renderer,
+            Err(err) => {
+                return Err((app, err))
+            },
+        };
 
         let mut handler = Self {
             app,

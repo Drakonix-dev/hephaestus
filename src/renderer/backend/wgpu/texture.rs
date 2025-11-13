@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use image::ImageReader;
 
-use crate::renderer::{TextureDefinition, TextureDimension, TextureHandle};
+use crate::{platform::core::PlatformError, renderer::{TextureDefinition, TextureDimension, TextureHandle}};
 
 pub(crate) struct TextureManager {
     textures: HashMap<TextureHandle, TextureInstance>,
@@ -25,11 +25,16 @@ impl TextureManager {
         queue: &wgpu::Queue,
         handle: TextureHandle,
         def: &TextureDefinition,
-    ) {
-        let image = ImageReader::open(def.source.as_path())
-            .expect("failed to open image")
+    ) -> Result<(), PlatformError> {
+        let image = ImageReader::open(def.source.as_path())?
             .decode()
-            .expect("failed to read image");
+            .or_else(|err| {
+                match err {
+                    image::ImageError::IoError(io) => Err(PlatformError::IoError(io)),
+                    _ => Err(PlatformError::AssetLoadFailed(def.source.clone())),
+                }
+            })?;
+        
         let rgba = image.to_rgb8();
 
         use image::GenericImageView;
@@ -77,6 +82,8 @@ impl TextureManager {
         self.textures.insert(handle, TextureInstance {
             view: texture_view, 
         });
+
+        Ok(())
     }
 
     pub(crate) fn get_texture(&self, handle: &TextureHandle) -> Option<&TextureInstance> {

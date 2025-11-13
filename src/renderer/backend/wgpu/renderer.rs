@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
-use crate::{platform::core::HasWindowInfo, renderer::{backend::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{platform::core::{HasWindowInfo, PlatformError}, renderer::{backend::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 pub struct Renderer<W>
     where W: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
@@ -129,8 +129,8 @@ impl<W> Renderer<W>
 impl<W> RendererBackend for Renderer<W>
     where W: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
 {
-    fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition) {
-        self.materials.create_material(&self.device, &self.shaders, &self.textures, handle, &definition);
+    fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition) -> Result<(), PlatformError> {
+        self.materials.create_material(&self.device, &self.shaders, &self.textures, handle, &definition)
     }
     
     fn create_mesh(&mut self, handle: MeshHandle, definition: MeshDefinition) {
@@ -141,8 +141,8 @@ impl<W> RendererBackend for Renderer<W>
         self.shaders.create_shader(&self.device, handle, &definition);
     }
     
-    fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition) {
-        self.textures.create_texture(&self.device, &self.queue, handle, &definition);
+    fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition) -> Result<(), PlatformError> {
+        self.textures.create_texture(&self.device, &self.queue, handle, &definition)
     }
     
     fn execute_commands(&mut self, phase: &RenderPhase, cmds: &[DrawCommand]) {

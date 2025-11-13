@@ -1,4 +1,4 @@
-#[macro_export(local_inner_macros)]
+#[macro_export]
 macro_rules! define_handle {
     ($name:ident) => {
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]  
@@ -13,6 +13,12 @@ macro_rules! define_handle {
             fn counter() -> &'static std::sync::atomic::AtomicU64 {
                 static COUNTER: std::sync::OnceLock<std::sync::atomic::AtomicU64> = std::sync::OnceLock::new();
                 COUNTER.get_or_init(|| std::sync::atomic::AtomicU64::new(1))
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "{}::{}", stringify!($name), self.0)
             }
         }
     };

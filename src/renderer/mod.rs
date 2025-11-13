@@ -6,11 +6,13 @@ pub use api::*;
 
 use std::collections::HashMap;
 
+use crate::platform::core::PlatformError;
+
 pub(crate) trait RendererBackend {
-    fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition);
+    fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition) -> Result<(), PlatformError>;
     fn create_mesh(&mut self, handle: MeshHandle, definition: MeshDefinition);
     fn create_shader(&mut self, handle: ShaderHandle, definition: ShaderDefinition);
-    fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition);
+    fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition) -> Result<(), PlatformError>;
     fn execute_commands(&mut self, phase: &RenderPhase, cmds: &[DrawCommand]);
     fn present_frame(&mut self);
     fn resize(&mut self, width: u32, height: u32);
@@ -29,25 +31,25 @@ impl<B: RendererBackend> Renderer<B> {
         backend: B,
         graph: &RenderGraph,
         queue: RenderQueueReader,
-    ) -> Self {
+    ) -> Result<Self, PlatformError> {
         let phases = graph.linearize()
-            .expect("Invalid RenderGraph");
+            .map_err(|err| PlatformError::BadRenderGraph(err.to_string()))?;
 
-        Self {
+        Ok(Self {
             backend,
             phases,
             queue,
             staged_draws: HashMap::new(),
-        }
+        })
     }
 
-    pub(crate) fn render<F>(&mut self, phased_draws: F)
+    pub(crate) fn render<F>(&mut self, phased_draws: F) -> Result<(), PlatformError>
         where F: FnMut(&RenderPhase) -> Option<Vec<DrawCommand>>
     {
         let mut cmds = self.queue.drain();
         let mut phased_draws = phased_draws;
         
-        self.process_staging_uploads(&mut cmds);
+        self.process_staging_uploads(&mut cmds)?;
         
         for phase in &self.phases {
             let mut extra = phased_draws(phase)
@@ -61,6 +63,8 @@ impl<B: RendererBackend> Renderer<B> {
         }
 
         self.backend.present_frame(); 
+
+        Ok(())
     }
 
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
@@ -73,11 +77,14 @@ impl<B: RendererBackend> Renderer<B> {
 
     // ------------------------------------------------------------------------
     
-    fn process_staging_uploads(&mut self, staged_commands: &mut Vec<RenderCommand>) {
+    fn process_staging_uploads(
+        &mut self,
+        staged_commands: &mut Vec<RenderCommand>,
+    ) -> Result<(), PlatformError> {
         for cmd in staged_commands.drain(..) {
             match cmd {
                 RenderCommand::CreateMaterial(handle, def) => {
-                    self.backend.create_material(handle, def);
+                    self.backend.create_material(handle, def)?;
                 },
                 RenderCommand::CreateMesh(handle, def) => {
                     self.backend.create_mesh(handle, def);
@@ -86,7 +93,7 @@ impl<B: RendererBackend> Renderer<B> {
                     self.backend.create_shader(handle, def);
                 },
                 RenderCommand::CreateTexture(handle, def) => {
-                    self.backend.create_texture(handle, def);
+                    self.backend.create_texture(handle, def)?;
                 },
                 RenderCommand::Draw(phase, draw) => {
                     self.staged_draws.entry(phase).or_default().push(draw);
@@ -99,5 +106,7 @@ impl<B: RendererBackend> Renderer<B> {
                 }, 
             }
         }
+
+        Ok(())
     }
 }

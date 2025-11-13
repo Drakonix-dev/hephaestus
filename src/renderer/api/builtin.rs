@@ -1,10 +1,18 @@
-use std::{mem, num::NonZeroU64, path::PathBuf};
+use std::{fmt, mem, num::NonZeroU64, path::PathBuf};
 
 use crate::renderer::{BindGroupLayout, BindingDesc, BindingType, MaterialUniforms, ShaderDefinition, ShaderStage};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinShader {
     SimpleColor,
+}
+
+impl fmt::Display for BuiltinShader {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BuiltinShader::SimpleColor => write!(f, "simple color shader"),
+        }
+    }
 }
 
 pub(crate) fn builtin_shader_definitions() -> Vec<(BuiltinShader, ShaderDefinition)> {
