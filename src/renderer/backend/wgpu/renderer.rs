@@ -149,8 +149,12 @@ impl<W> RendererBackend for Renderer<W>
         if self.config.is_none() {
             self.configure_surface();
         }
+
+        let mut load_op = true;
         
         let frame = self.current_frame.get_or_insert_with(|| {
+            load_op = false;
+            
             self.window.request_redraw();
             self.surface.get_current_texture()
                 .expect("Failed to acquire frame")
@@ -169,7 +173,7 @@ impl<W> RendererBackend for Renderer<W>
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: if load_op { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::BLACK) },
                         store: wgpu::StoreOp::Store,
                     },
                 })],
