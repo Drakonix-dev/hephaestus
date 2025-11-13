@@ -19,13 +19,13 @@ impl WinitPlatform {
     }
 }
 
-enum AppState<'a, A: Application> {
-    Initialized(AppHandler<'a, A>),
+enum AppState<A: Application> {
+    Initialized(AppHandler<A>),
     MaybeUninit,
     Uninitialized { app: A, graph: RenderGraph },
 }
 
-impl<'a, A: Application> AppState<'a, A> {
+impl<A: Application> AppState<A> {
     fn init(&mut self, event_loop: &ActiveEventLoop) {
         match mem::replace(self, AppState::MaybeUninit) {
             AppState::Initialized(_) => panic!("Already initialized"),
@@ -37,7 +37,7 @@ impl<'a, A: Application> AppState<'a, A> {
     }
 }
 
-impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
+impl <A: Application> ApplicationHandler for AppState<A> {
     // fn about_to_wait(&mut self, _: &ActiveEventLoop) {
     //     match self {
     //         AppState::Initialized(handler) => handler.window.request_redraw(),
@@ -108,15 +108,15 @@ impl <'a, A: Application> ApplicationHandler for AppState<'a, A> {
     }
 }
 
-struct AppHandler<'a, A: Application> {
+struct AppHandler<A: Application> {
     app: A,
     closed: AtomicBool,
     graph: RenderGraph,
-    renderer: Renderer<WgpuRenderer<'a, Window>>,
+    renderer: Renderer<WgpuRenderer<Window>>,
     renderer_handle: RendererHandle,
 }
 
-impl<'a, A: Application> AppHandler<'a, A> {
+impl<A: Application> AppHandler<A> {
     fn new(app: A, event_loop: &ActiveEventLoop, graph: RenderGraph) -> Self {
         let attrs = Window::default_attributes()
             .with_title("Engine Window");

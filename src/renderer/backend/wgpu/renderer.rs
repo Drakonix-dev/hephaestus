@@ -4,7 +4,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{platform::core::HasWindowInfo, renderer::{backend::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
-pub struct Renderer<'a, W>
+pub struct Renderer<W>
     where W: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
 {
     adapter: wgpu::Adapter,
@@ -15,7 +15,7 @@ pub struct Renderer<'a, W>
     pipelines: PipelineManager,
     queue: wgpu::Queue,
     shaders: ShaderManager,
-    surface: wgpu::Surface<'a>,
+    surface: wgpu::Surface<'static>,
     surface_format: Option<wgpu::TextureFormat>,
     textures: TextureManager,
     window: Arc<W>,
@@ -23,16 +23,14 @@ pub struct Renderer<'a, W>
     current_frame: Option<wgpu::SurfaceTexture>,
 }
 
-impl<'a, W> Renderer<'a, W>
+impl<W> Renderer<W>
     where W: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
 {
     pub(crate) async fn new(window: W) -> Self {
-        let window_arc = Arc::new(window);
-        
-        let instance = wgpu::Instance::default();
-        let target = wgpu::SurfaceTarget::Window(Box::new(window_arc.clone()));
-        
-        let surface = instance.create_surface(target)
+        let window = Arc::new(window);
+
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let surface = instance.create_surface(window.clone())
             .expect("failed to create surface");
 
         let adapter = instance
@@ -61,7 +59,7 @@ impl<'a, W> Renderer<'a, W>
             surface,
             surface_format: None,
             textures: TextureManager::new(),
-            window: window_arc,
+            window,
 
             current_frame: None,
         }
@@ -119,7 +117,7 @@ impl<'a, W> Renderer<'a, W>
     }
 }
 
-impl<'a, W> RendererBackend for Renderer<'a, W>
+impl<W> RendererBackend for Renderer<W>
     where W: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
 {
     fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition) {
@@ -144,6 +142,7 @@ impl<'a, W> RendererBackend for Renderer<'a, W>
         }
         
         let frame = self.current_frame.get_or_insert_with(|| {
+            self.window.request_redraw();
             self.surface.get_current_texture()
                 .expect("Failed to acquire frame")
         });

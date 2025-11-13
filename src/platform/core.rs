@@ -6,4 +6,5 @@ pub(crate) struct WindowInfo {
 
 pub(crate) trait HasWindowInfo {
     fn get_window_info(&self) -> WindowInfo;
+    fn request_redraw(&self);
 }
