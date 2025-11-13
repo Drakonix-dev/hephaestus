@@ -8,6 +8,8 @@ pub(crate) struct WinitPlatform;
 
 impl WinitPlatform {
     pub fn run<A: Application + 'static>(app: A, graph: RenderGraph) {
+        env_logger::init();
+        
         let event_loop = EventLoop::new().unwrap();
         event_loop.set_control_flow(ControlFlow::Poll);
 
@@ -38,13 +40,6 @@ impl<A: Application> AppState<A> {
 }
 
 impl <A: Application> ApplicationHandler for AppState<A> {
-    // fn about_to_wait(&mut self, _: &ActiveEventLoop) {
-    //     match self {
-    //         AppState::Initialized(handler) => handler.window.request_redraw(),
-    //         _ => return,
-    //     };
-    // }
-
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
     
     fn exiting(&mut self, _: &ActiveEventLoop) {
@@ -152,4 +147,8 @@ impl HasWindowInfo for Window {
             width: self.inner_size().width,
         }
     }   
+
+    fn request_redraw(&self) {
+        self.request_redraw()
+    }
 }

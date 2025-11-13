@@ -29,9 +29,12 @@ impl<W> Renderer<W>
     pub(crate) async fn new(window: W) -> Self {
         let window = Arc::new(window);
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let surface = instance.create_surface(window.clone())
-            .expect("failed to create surface");
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
+        
+        let surface = instance.create_surface(window.clone()).unwrap();
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -43,7 +46,14 @@ impl<W> Renderer<W>
             .expect("failed to get adapter");
 
         let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor::default())
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+                trace: wgpu::Trace::Off,
+            })
             .await
             .expect("failed to get device");
 
@@ -69,8 +79,7 @@ impl<W> Renderer<W>
         let window_info = self.window.get_window_info();
         
         let caps = self.surface.get_capabilities(&self.adapter);
-        let format = caps.formats
-            .iter()
+        let format = caps.formats.iter()
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(caps.formats[0]);
