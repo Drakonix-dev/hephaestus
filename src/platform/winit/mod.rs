@@ -8,17 +8,16 @@ use super::core;
 pub(crate) struct WinitPlatform;
 
 impl WinitPlatform {
-    pub fn run<A: Application + 'static>(app: A, graph: RenderGraph) {
+    pub fn run<A: Application + 'static>(app: A, graph: RenderGraph) -> Result<(), PlatformError> {
         env_logger::init();
         
-        let event_loop = EventLoop::new().unwrap();
+        let event_loop = EventLoop::new()?;
         event_loop.set_control_flow(ControlFlow::Poll);
 
         let mut app_state = AppState::Uninitialized { app, graph };
+        let res = event_loop.run_app(&mut app_state)?;
 
-        if let Err(error) = event_loop.run_app(&mut app_state) {
-            panic!("error: {}", error);
-        }
+        Ok(res)
     }
 }
 
@@ -137,7 +136,13 @@ impl<A: Application> AppHandler<A> {
             },
         };
 
-        let backend = pollster::block_on(WgpuRenderer::new(window));
+        let backend = match pollster::block_on(WgpuRenderer::new(window)) {
+            Ok(backend) => backend,
+            Err(err) => {
+                return Err((app, err))
+            },
+        };
+        
         let (writer, reader) = RenderQueue::new();
         let renderer_handle = RendererHandle::new(writer);
         
@@ -174,6 +179,12 @@ impl core::HasWindowInfo for Window {
 
     fn request_redraw(&self) {
         self.request_redraw()
+    }
+}
+
+impl From<winit::error::EventLoopError> for PlatformError {
+    fn from(err: winit::error::EventLoopError) -> Self {
+        Self::LoopError(err.to_string())
     }
 }
 

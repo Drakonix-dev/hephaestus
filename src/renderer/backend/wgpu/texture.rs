@@ -43,7 +43,8 @@ impl TextureManager {
         let (dimension, depth_or_layers) = match def.dimension {
             TextureDimension::D1 => (wgpu::TextureDimension::D1, 1),
             TextureDimension::D2 => (wgpu::TextureDimension::D2, 1),
-            TextureDimension::D3 => (wgpu::TextureDimension::D3, def.depth.unwrap()),
+            TextureDimension::D3 => (wgpu::TextureDimension::D3, def.depth
+                .ok_or(PlatformError::BadAssetDefinition(String::from("No depth for D3 texture")))?),
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {

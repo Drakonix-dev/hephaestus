@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs};
 
-use crate::renderer::{BindGroupLayout, BindingType, ShaderDefinition, ShaderHandle, ShaderStage};
+use crate::{platform::core::PlatformError, renderer::{BindGroupLayout, BindingType, ShaderDefinition, ShaderHandle, ShaderStage}};
 
 pub(crate) struct ShaderManager {
     shaders: HashMap<ShaderHandle, ShaderInstance>,
@@ -24,12 +24,12 @@ impl ShaderManager {
         device: &wgpu::Device,
         handle: ShaderHandle,
         def: &ShaderDefinition,
-    ) {
-        let source = fs::read_to_string(def.source.as_path())
-            .unwrap_or_else(|_| panic!("failed to read shader file at {:?}", def.source));
+    ) -> Result<(), PlatformError> {
+        let source = fs::read_to_string(def.source.as_path())?;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-           label: Some(def.source.to_str().unwrap()),
-           source: wgpu::ShaderSource::Wgsl(source.into()),
+            label: Some(def.source.to_str()
+                .ok_or(PlatformError::AssetLoadFailed(def.source.clone()))?),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
 
         self.shaders.insert(handle, ShaderInstance {
@@ -37,6 +37,8 @@ impl ShaderManager {
             layout: def.layout.to_wgpu(&device),
             module: shader,
         });
+
+        Ok(())
     }
 
     pub(crate) fn get_shader(&self, handle: &ShaderHandle) -> Option<&ShaderInstance> {
