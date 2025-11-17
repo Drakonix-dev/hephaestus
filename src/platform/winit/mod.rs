@@ -79,9 +79,7 @@ impl <A: Application> ApplicationHandler for AppState<A> {
             _ => return,
         };
 
-        let ctx = ApplicationContext {
-            renderer: &mut handler.renderer_handle,
-        };
+        let ctx = ApplicationContext::new(&mut handler.renderer_handle);
 
         match event {
             WindowEvent::CloseRequested | WindowEvent::Destroyed => {
@@ -161,9 +159,7 @@ impl<A: Application> AppHandler<A> {
             renderer_handle,
         };
 
-        handler.app.init(&ApplicationContext{
-            renderer: &mut handler.renderer_handle,
-        });
+        handler.app.init(&ApplicationContext::new(&mut handler.renderer_handle));
 
         Ok(handler)
     }

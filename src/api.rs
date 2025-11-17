@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, sync::atomic::{AtomicBool, Ordering}};
 
 use crate::{events::Event, renderer::{DrawCommand, RenderPhase, RendererHandle}};
 
@@ -12,7 +12,25 @@ pub trait Application {
 }
 
 pub struct ApplicationContext<'a> {
+    exit_requested: AtomicBool,
     pub renderer: &'a mut RendererHandle
+}
+
+impl<'a> ApplicationContext<'a> {
+    pub(crate) fn new(renderer: &'a mut RendererHandle) -> Self {
+        Self {
+            exit_requested: AtomicBool::new(false),
+            renderer,
+        }
+    }
+    
+    pub fn exit_requested(&self) -> bool {
+        self.exit_requested.load(Ordering::SeqCst)
+    }
+    
+    pub fn request_exit(&self) {
+        self.exit_requested.store(true, Ordering::SeqCst);
+    }
 }
 
 #[derive(Debug)]

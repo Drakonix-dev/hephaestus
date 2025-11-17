@@ -4,7 +4,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{platform::core::{FrameError, HasWindowInfo, PlatformError}, renderer::{self, backend::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
-trait Window: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static {}
+pub(crate) trait Window: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static {}
 impl <T: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static> Window for T {}
 
 pub struct Renderer<W: Window> {
@@ -126,8 +126,10 @@ impl<W: Window> Renderer<W> {
     }
 }
 
-impl<'a, W: Window> RendererBackend<'a, RenderFrame<'a>> for Renderer<W> {
-    fn begin_frame(&'a mut self) -> Result<RenderFrame<'a>, PlatformError> {
+impl<W: Window> RendererBackend for Renderer<W> {
+    type Frame<'a> = RenderFrame<'a, W>;
+    
+    fn begin_frame<'a>(&'a mut self) -> Result<Self::Frame<'a>, PlatformError> {
         if self.config.is_none() {
             self.configure_surface();
         }
@@ -137,13 +139,7 @@ impl<'a, W: Window> RendererBackend<'a, RenderFrame<'a>> for Renderer<W> {
         let frame = self.surface.get_current_texture()?;
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        Ok(RenderFrame::new(RenderFrameDescriptor {
-            device: &self.device,
-            draw_mesh: self.draw_mesh,
-            frame,
-            queue: &self.queue,
-            view,
-        }))
+        Ok(RenderFrame::new(self, frame, view))
     }
     
     fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition) -> Result<(), PlatformError> {
@@ -181,47 +177,27 @@ impl<'a, W: Window> RendererBackend<'a, RenderFrame<'a>> for Renderer<W> {
     }
 }
 
-struct RenderFrame<'a, F>
-    where F: FnMut(&mut wgpu::RenderPass, &DrawMesh) -> Result<(), PlatformError>
-{
-    device: &'a wgpu::Device,
-    draw_mesh: F,
+pub(crate) struct RenderFrame<'a, W: Window> {
     first_pass: bool,
     frame: wgpu::SurfaceTexture,
-    queue: &'a wgpu::Queue,
+    renderer: &'a mut Renderer<W>,
     view: wgpu::TextureView,
 }
 
-struct RenderFrameDescriptor<'a, F>
-    where F: FnMut(&mut wgpu::RenderPass, &DrawMesh) -> Result<(), PlatformError>
-{
-    device: &'a wgpu::Device,
-    draw_mesh: F,
-    frame: wgpu::SurfaceTexture,
-    queue: &'a wgpu::Queue,
-    view: wgpu::TextureView,
-}
-
-impl<'a, F> RenderFrame<'a, F>
-    where F: FnMut(&mut wgpu::RenderPass, &DrawMesh) -> Result<(), PlatformError>
-{
-    fn new(desc: RenderFrameDescriptor<'a, F>) -> Self {
+impl<'a, W: Window> RenderFrame<'a, W> {
+    fn new(renderer: &'a mut Renderer<W>, frame: wgpu::SurfaceTexture, view: wgpu::TextureView) -> Self {
         Self {
-            device: desc.device,
-            draw_mesh: desc.draw_mesh,
             first_pass: true,
-            frame: desc.frame,
-            queue: desc.queue,
-            view: desc.view,
+            frame,
+            renderer,
+            view,
         }
     }
 }
 
-impl<'a, F> renderer::RenderFrame for RenderFrame<'a, F>
-    where F: FnMut(&mut wgpu::RenderPass, &DrawMesh) -> Result<(), PlatformError>
-{
+impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
     fn execute_commands(&mut self, phase: &RenderPhase, cmds: &[DrawCommand]) -> Result<(), PlatformError> {
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mut encoder = self.renderer.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some(&format!("Render {:?} Encode", phase)),
         });
 
@@ -251,12 +227,12 @@ impl<'a, F> renderer::RenderFrame for RenderFrame<'a, F>
 
             for cmd in cmds {
                 match cmd {
-                    DrawCommand::Mesh(mesh) => (self.draw_mesh)(&mut rpass, mesh)?,
+                    DrawCommand::Mesh(mesh) => self.renderer.draw_mesh(&mut rpass, mesh)?,
                 }
             }
         }
 
-        self.queue.submit(Some(encoder.finish()));
+        self.renderer.queue.submit(Some(encoder.finish()));
 
         Ok(())
     }
