@@ -1,4 +1,4 @@
-use std::{mem::{self}, sync::atomic::{AtomicBool, Ordering}};
+use std::{mem::{self}, sync::{atomic::{AtomicBool, Ordering}, mpsc}, thread, time};
 
 use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
 
@@ -55,9 +55,7 @@ impl <A: Application> ApplicationHandler for AppState<A> {
         let old_state = mem::replace(self, AppState::MaybeUninit);
         
         if let AppState::Initialized(mut handler) = old_state {
-            handler.closed.store(true, Ordering::SeqCst);
-            handler.app.quit();
-            handler.renderer.shutdown();
+            handler.exit();
 
             *self = AppState::Uninitialized {
                 app: handler.app,
@@ -79,36 +77,10 @@ impl <A: Application> ApplicationHandler for AppState<A> {
             _ => return,
         };
 
-        let ctx = ApplicationContext::new(&mut handler.renderer_handle);
-
         match event {
-            WindowEvent::CloseRequested | WindowEvent::Destroyed => {
-                event_loop.exit();
-            },
-            WindowEvent::RedrawRequested => {
-                if handler.closed.load(Ordering::SeqCst) {
-                    return
-                }
-
-                let res = handler.renderer.render(|phase| {
-                    handler.app.render(phase)
-                });
-
-                if let Err(err) = res {
-                    handler.app.handle_error(err);
-                }
-            },
-            WindowEvent::Resized(size) => {
-                if handler.closed.load(Ordering::SeqCst) {
-                    return
-                }
-                
-                let width = size.width.max(1);
-                let height = size.height.max(1);
-                
-                handler.renderer.resize(width, height);
-                handler.app.handle_event(&ctx, Event::Resized(width, height));
-            },
+            WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
+            WindowEvent::RedrawRequested => handler.redraw(),
+            WindowEvent::Resized(size) => handler.resize(size),
             _ => {},
         }
     }
@@ -116,10 +88,14 @@ impl <A: Application> ApplicationHandler for AppState<A> {
 
 struct AppHandler<A: Application> {
     app: A,
-    closed: AtomicBool,
     graph: RenderGraph,
+    last_tick: time::Instant,
     renderer: Renderer<WgpuRenderer<Window>>,
     renderer_handle: RendererHandle,
+    shutdown: AtomicBool,
+    simulation: thread::JoinHandle<()>,
+    tick_rx: mpsc::Receiver<()>,
+    timestep: time::Duration,
 }
 
 impl<A: Application> AppHandler<A> {
@@ -151,18 +127,101 @@ impl<A: Application> AppHandler<A> {
             },
         };
 
+        let (tick_tx, tick_rx) = mpsc::channel();
+        let timestep = time::Duration::from_millis(16); // ~60 hz
+        let simulation = match spawn_simulation_ticker(tick_tx, timestep) {
+            Ok(simulation) => simulation,
+            Err(err) => {
+                return Err((app, err))
+            },
+        };
+
         let mut handler = Self {
             app,
-            closed: AtomicBool::new(false),
             graph,
+            last_tick: time::Instant::now(),
             renderer,
             renderer_handle,
+            shutdown: AtomicBool::new(false),
+            simulation,
+            tick_rx,
+            timestep,
         };
 
         handler.app.init(&ApplicationContext::new(&mut handler.renderer_handle));
 
         Ok(handler)
     }
+    
+    fn exit(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        self.app.quit();
+        self.renderer.shutdown();
+    }
+
+    fn redraw(&mut self) {
+        if self.shutdown.load(Ordering::SeqCst) {
+            return
+        }
+
+        while self.tick_rx.try_recv().is_ok() {
+            let now = time::Instant::now();
+            let dt = now - self.last_tick;
+            self.last_tick = now;
+
+            let ctx = ApplicationContext::new(&mut self.renderer_handle);
+            self.app.update(&ctx, dt);
+        }
+
+        let res = self.renderer.render(|phase| {
+            self.app.render(phase)
+        });
+
+        if let Err(err) = res {
+            self.app.handle_error(err);
+        }       
+    }
+
+    fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
+        if self.shutdown.load(Ordering::SeqCst) {
+            return
+        }
+        
+        let width = size.width.max(1);
+        let height = size.height.max(1);
+        
+        self.renderer.resize(width, height);
+        
+        let ctx = ApplicationContext::new(&mut self.renderer_handle);
+        self.app.handle_event(&ctx, Event::Resized(width, height));
+    }
+}
+
+fn spawn_simulation_ticker(
+    tx: mpsc::Sender<()>,
+    timestep: time::Duration,
+) -> Result<thread::JoinHandle<()>, PlatformError> {
+    let handle = thread::Builder::new()
+        .name("hephaestus-ticker".to_owned())
+        .spawn(move || {
+            let mut last = time::Instant::now();
+
+            loop {
+                let now = time::Instant::now();
+                if now - last >= timestep {
+                    last = now;
+
+                    if tx.send(()).is_err() {
+                        // main thread dropped receiver -> exit
+                        break;
+                    }
+                }
+
+                thread::sleep(time::Duration::from_millis(1));
+            }
+        })?;
+
+    Ok(handle)
 }
 
 impl core::HasWindowInfo for Window {
