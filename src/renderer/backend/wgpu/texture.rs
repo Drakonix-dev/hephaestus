@@ -2,11 +2,10 @@ use std::collections::HashMap;
 
 use image::ImageReader;
 
-use crate::rendering::{TextureDefinition, TextureDimension, TextureHandle};
+use crate::{platform::core::PlatformError, renderer::{TextureDefinition, TextureDimension, TextureHandle}};
 
 pub(crate) struct TextureManager {
     textures: HashMap<TextureHandle, TextureInstance>,
-    next_id: TextureHandle,
 }
 
 pub(crate) struct TextureInstance {
@@ -17,7 +16,6 @@ impl TextureManager {
     pub(crate) fn new() -> Self {
         Self {
             textures: HashMap::new(),
-            next_id: TextureHandle::new(),
         }
     }
 
@@ -25,12 +23,18 @@ impl TextureManager {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        handle: TextureHandle,
         def: &TextureDefinition,
-    ) -> TextureHandle {
-        let image = ImageReader::open(def.source)
-            .expect("failed to open image")
+    ) -> Result<(), PlatformError> {
+        let image = ImageReader::open(def.source.as_path())?
             .decode()
-            .expect("failed to read image");
+            .or_else(|err| {
+                match err {
+                    image::ImageError::IoError(io) => Err(PlatformError::IoError(io)),
+                    _ => Err(PlatformError::AssetLoadFailed(def.source.clone())),
+                }
+            })?;
+        
         let rgba = image.to_rgb8();
 
         use image::GenericImageView;
@@ -39,7 +43,8 @@ impl TextureManager {
         let (dimension, depth_or_layers) = match def.dimension {
             TextureDimension::D1 => (wgpu::TextureDimension::D1, 1),
             TextureDimension::D2 => (wgpu::TextureDimension::D2, 1),
-            TextureDimension::D3 => (wgpu::TextureDimension::D3, def.depth.unwrap()),
+            TextureDimension::D3 => (wgpu::TextureDimension::D3, def.depth
+                .ok_or(PlatformError::BadAssetDefinition(String::from("No depth for D3 texture")))?),
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -75,14 +80,11 @@ impl TextureManager {
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let handle = self.next_id;
-        self.next_id = self.next_id.next();
-
         self.textures.insert(handle, TextureInstance {
-           view: texture_view, 
+            view: texture_view, 
         });
 
-        handle
+        Ok(())
     }
 
     pub(crate) fn get_texture(&self, handle: &TextureHandle) -> Option<&TextureInstance> {

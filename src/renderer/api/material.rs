@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
-use crate::{define_handle, rendering::{ShaderHandle, TextureHandle}};
+use crate::{define_handle, renderer::{ShaderHandle, TextureHandle}};
 
 // MaterialHandle defines a handle for a specific material.
 define_handle!(MaterialHandle);
@@ -18,7 +18,7 @@ pub struct MaterialParams {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
+#[derive(Clone, Copy, Default, Pod, Zeroable)]
 pub struct MaterialUniforms {
     pub base_color: [f32; 4],
     pub roughness: f32,

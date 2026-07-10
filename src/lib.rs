@@ -1,17 +1,17 @@
 mod api;
-pub use api::*;
-
-pub mod core;
+mod platform;
 
 pub(crate) mod macros;
 
-mod platform;
-mod renderer;
+pub mod events;
+pub mod math;
+pub mod renderer;
 
-#[cfg(not(target_arch = "wasm32"))]
-mod platform_winit;
+pub use api::*;
 
-pub fn run<A: crate::app::Application + 'static>(app: A) {
+use crate::renderer::RenderGraph;
+
+pub fn run<A: crate::Application + 'static>(app: A, graph: RenderGraph) {
     #[cfg(not(target_arch = "wasm32"))]
-    platform_winit::WinitPlatform::run(app);
+    crate::platform::winit::WinitPlatform::run(app, graph);
 }

@@ -2,43 +2,42 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
-use crate::{renderer::wgpu::{shader::ShaderManager, texture::TextureManager}, rendering::{Material, MaterialDefinition, MaterialHandle, ShaderHandle}};
+use crate::{platform::core::PlatformError, renderer::{backend::wgpu::{shader::ShaderManager, texture::TextureManager}, MaterialDefinition, MaterialHandle, ShaderHandle}};
 
 pub(crate) struct MaterialManager {
     materials: HashMap<MaterialHandle, MaterialInstance>,
-    next_id: MaterialHandle,
 }
 
 pub(crate) struct MaterialInstance {
     pub(crate) bind_group: wgpu::BindGroup,
-    pub(crate) buffer: wgpu::Buffer,
+    pub(crate) shader: ShaderHandle,
 }
 
 impl MaterialManager {
     pub(crate) fn new() -> Self {
         Self {
             materials: HashMap::new(),
-            next_id: MaterialHandle::new(),
         }
     }
 
     pub(crate) fn create_material(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         shaders: &ShaderManager,
         textures: &TextureManager,
+        handle: MaterialHandle,
         def: &MaterialDefinition,
-    ) -> MaterialHandle {
+    ) -> Result<(), PlatformError> {
         let shader = shaders.get_shader(&def.shader).
-            expect("invalid shader");
+            ok_or(PlatformError::AssetNotFound(def.shader.to_string()))?;
 
         let texture_views: Vec<&wgpu::TextureView> = def.params.textures.iter()
             .map(|h| {
-              &textures.get_texture(h)
-                  .expect("invalid texture")
-                  .view
+                let tex = textures.get_texture(h)
+                    .ok_or(PlatformError::AssetNotFound(h.to_string()))?;
+                Ok(&tex.view)
             })
-            .collect();
+            .collect::<Result<_, PlatformError>>()?;
 
         let uniform_data = bytemuck::bytes_of(&def.params.uniforms);
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -47,7 +46,7 @@ impl MaterialManager {
            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let bind_group_layout = &shader.bind_group_layout;
+        let bind_group_layout = &shader.layout;
 
         let entries = vec![
             wgpu::BindGroupEntry {
@@ -70,15 +69,12 @@ impl MaterialManager {
            entries: &entries,
         });
 
-        let handle = self.next_id;
-        self.next_id = self.next_id.next();
-
         self.materials.insert(handle, MaterialInstance {
-            buffer: uniform_buffer,
             bind_group,
+            shader: def.shader,
         });
 
-        handle
+        Ok(())
     }
 
     pub(crate) fn get_material(&self, handle: &MaterialHandle) -> Option<&MaterialInstance> {
