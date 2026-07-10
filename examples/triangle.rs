@@ -2,9 +2,9 @@ use hephaestus::{
     ApplicationContext, ApplicationInstance,
     math::Transform3D,
     renderer::{
-        BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle,
-        MaterialParams, MaterialUniforms, MeshDefinition, MeshHandle, RenderDomain, RenderGraph,
-        RenderPhase, SubPhase, Transform,
+        BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MaterialParams,
+        MaterialUniforms, MeshDefinition, MeshHandle, RenderDomain, RenderGraph, RenderPhase,
+        SubPhase, Transform,
     },
 };
 

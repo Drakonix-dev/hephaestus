@@ -17,7 +17,7 @@ impl fmt::Display for BuiltinShader {
 
 pub(crate) fn builtin_shader_definitions() -> Vec<(BuiltinShader, ShaderDefinition)> {
     let simple_color = ShaderDefinition {
-        source: PathBuf::from("hephaestus/assets/shaders/simple_color.wgsl"),
+        source: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/shaders/simple_color.wgsl")),
         layout: BindGroupLayout {
             entries: vec![BindingDesc {
                 binding: 0,
