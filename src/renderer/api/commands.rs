@@ -1,6 +1,12 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use crate::{math::{Transform2D, Transform3D}, renderer::{MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{
+    math::{Transform2D, Transform3D},
+    renderer::{
+        MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase,
+        ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle,
+    },
+};
 
 // RenderCommand defines a command for rendering.
 pub(crate) enum RenderCommand {
@@ -26,7 +32,7 @@ pub struct DrawMesh {
 
 // Renderable defines something that can be rendered.
 pub trait Renderable {
-    fn draw(&self, phase: RenderPhase) -> Vec<DrawCommand>;   
+    fn draw(&self, phase: RenderPhase) -> Vec<DrawCommand>;
 }
 
 // Transform defines a transformation.
@@ -52,7 +58,9 @@ pub(crate) struct RenderQueueWriter {
 
 impl RenderQueueWriter {
     pub(crate) fn push(&self, cmd: RenderCommand) {
-        self.tx.send(cmd);
+        self.tx
+            .send(cmd)
+            .expect("pushed render command after queue reader dropped");
     }
 }
 
@@ -63,7 +71,7 @@ pub(crate) struct RenderQueueReader {
 impl RenderQueueReader {
     pub(crate) fn drain(&self) -> Vec<RenderCommand> {
         let mut cmds = Vec::new();
-        
+
         while let Ok(cmd) = self.rx.try_recv() {
             cmds.push(cmd);
         }
