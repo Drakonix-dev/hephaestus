@@ -11,7 +11,10 @@ pub use api::*;
 
 use crate::renderer::RenderGraph;
 
-pub fn run<A: crate::Application + 'static>(app: A, graph: RenderGraph) {
+pub fn run<A: crate::Application + 'static>(
+    app: A,
+    graph: RenderGraph,
+) -> Result<(), api::EngineError> {
     #[cfg(not(target_arch = "wasm32"))]
-    crate::platform::winit::WinitPlatform::run(app, graph);
+    Ok(crate::platform::winit::WinitPlatform::run(app, graph)?)
 }
