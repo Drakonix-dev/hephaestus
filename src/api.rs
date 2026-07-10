@@ -1,20 +1,35 @@
 use core::time;
-use std::{error::Error, sync::atomic::{AtomicBool, Ordering}};
+use std::{
+    error::Error,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
-use crate::{events::Event, renderer::{DrawCommand, RenderPhase, RendererHandle}};
+use crate::{
+    events::Event,
+    renderer::{DrawCommand, RenderPhase, RendererHandle},
+};
 
 pub trait Application {
-    fn init(&mut self, ctx: &ApplicationContext);
+    type Instance: ApplicationInstance;
+
+    fn create(&mut self, _ctx: &ApplicationContext) -> Self::Instance;
     fn handle_error(&mut self, _err: impl Into<EngineError>) {}
-    fn handle_event(&mut self, ctx: &ApplicationContext, event: Event);
+    fn quit(&mut self) {}
+}
+
+pub trait ApplicationInstance {
+    fn handle_error(&mut self, _err: impl Into<EngineError>) {}
+    fn handle_event(&mut self, _ctx: &ApplicationContext, _event: Event) {}
     fn update(&mut self, _ctx: &ApplicationContext, _dt: time::Duration) {}
     fn quit(&mut self) {}
-    fn render(&mut self, _phase: &RenderPhase) -> Option<Vec<DrawCommand>> { None }
+    fn render(&mut self, _phase: &RenderPhase) -> Option<Vec<DrawCommand>> {
+        None
+    }
 }
 
 pub struct ApplicationContext<'a> {
     exit_requested: AtomicBool,
-    pub renderer: &'a mut RendererHandle
+    pub renderer: &'a mut RendererHandle,
 }
 
 impl<'a> ApplicationContext<'a> {
@@ -24,11 +39,11 @@ impl<'a> ApplicationContext<'a> {
             renderer,
         }
     }
-    
+
     pub fn exit_requested(&self) -> bool {
         self.exit_requested.load(Ordering::SeqCst)
     }
-    
+
     pub fn request_exit(&self) {
         self.exit_requested.store(true, Ordering::SeqCst);
     }

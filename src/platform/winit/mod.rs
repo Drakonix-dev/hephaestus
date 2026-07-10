@@ -1,16 +1,35 @@
-use std::{mem::{self}, sync::{atomic::{AtomicBool, Ordering}, mpsc}, thread, time};
+use std::{
+    mem::{self},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread, time,
+};
 
-use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, window::{Window, WindowId}};
+use winit::{
+    application::ApplicationHandler,
+    event::{DeviceEvent, DeviceId, WindowEvent},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    window::{Window, WindowId},
+};
 
-use crate::{events::Event, platform::core::PlatformError, renderer::{backend::wgpu::Renderer as WgpuRenderer, RenderGraph, RenderQueue, Renderer, RendererHandle}, Application, ApplicationContext};
 use super::core;
+use crate::{
+    Application, ApplicationContext, ApplicationInstance,
+    events::Event,
+    platform::core::PlatformError,
+    renderer::{
+        RenderGraph, RenderQueue, Renderer, RendererHandle, backend::wgpu::Renderer as WgpuRenderer,
+    },
+};
 
 pub(crate) struct WinitPlatform;
 
-impl WinitPlatform {
-    pub fn run<A: Application + 'static>(app: A, graph: RenderGraph) -> Result<(), PlatformError> {
+impl<'a> WinitPlatform {
+    pub fn run<A: Application + 'a>(app: A, graph: RenderGraph) -> Result<(), PlatformError> {
         env_logger::init();
-        
+
         let event_loop = EventLoop::new()?;
         event_loop.set_control_flow(ControlFlow::Poll);
 
@@ -37,37 +56,34 @@ impl<A: Application> AppState<A> {
                     Err((mut app, err)) => {
                         app.handle_error(err);
                         event_loop.exit();
-                        return
-                    },
+                        return;
+                    }
                 };
 
                 *self = Self::Initialized(handler);
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
 
-impl <A: Application> ApplicationHandler for AppState<A> {
+impl<A: Application> ApplicationHandler for AppState<A> {
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
-    
+
     fn exiting(&mut self, _: &ActiveEventLoop) {
         let old_state = mem::replace(self, AppState::MaybeUninit);
-        
-        if let AppState::Initialized(mut handler) = old_state {
-            handler.exit();
 
-            *self = AppState::Uninitialized {
-                app: handler.app,
-                graph: handler.graph,
-            };
+        if let AppState::Initialized(handler) = old_state {
+            let (app, graph) = handler.exit();
+
+            *self = AppState::Uninitialized { app, graph };
         }
     }
-    
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         match self {
             AppState::Uninitialized { .. } => self.init(event_loop),
-            _ => {},
+            _ => {}
         }
     }
 
@@ -81,13 +97,14 @@ impl <A: Application> ApplicationHandler for AppState<A> {
             WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
             WindowEvent::RedrawRequested => handler.redraw(),
             WindowEvent::Resized(size) => handler.resize(size),
-            _ => {},
+            _ => {}
         }
     }
 }
 
 struct AppHandler<A: Application> {
     app: A,
+    instance: A::Instance,
     graph: RenderGraph,
     last_tick: time::Instant,
     renderer: Renderer<WgpuRenderer<Window>>,
@@ -99,45 +116,42 @@ struct AppHandler<A: Application> {
 }
 
 impl<A: Application> AppHandler<A> {
-    fn new(app: A, event_loop: &ActiveEventLoop, graph: RenderGraph) -> Result<Self, (A, core::PlatformError)> {
-        let attrs = Window::default_attributes()
-            .with_title("Engine Window");
+    fn new(
+        mut app: A,
+        event_loop: &ActiveEventLoop,
+        graph: RenderGraph,
+    ) -> Result<Self, (A, core::PlatformError)> {
+        let attrs = Window::default_attributes().with_title("Engine Window");
 
         let window = match event_loop.create_window(attrs) {
             Ok(window) => window,
-            Err(err) => {
-                return Err((app, err.into()))
-            },
+            Err(err) => return Err((app, err.into())),
         };
 
         let backend = match pollster::block_on(WgpuRenderer::new(window)) {
             Ok(backend) => backend,
-            Err(err) => {
-                return Err((app, err))
-            },
+            Err(err) => return Err((app, err)),
         };
-        
+
         let (writer, reader) = RenderQueue::new();
-        let renderer_handle = RendererHandle::new(writer);
-        
+        let mut renderer_handle = RendererHandle::new(writer);
+
         let renderer = match Renderer::new(backend, &graph, reader) {
             Ok(renderer) => renderer,
-            Err(err) => {
-                return Err((app, err))
-            },
+            Err(err) => return Err((app, err)),
         };
 
         let (tick_tx, tick_rx) = mpsc::channel();
         let timestep = time::Duration::from_millis(16); // ~60 hz
         let simulation = match spawn_simulation_ticker(tick_tx, timestep) {
             Ok(simulation) => simulation,
-            Err(err) => {
-                return Err((app, err))
-            },
+            Err(err) => return Err((app, err)),
         };
 
-        let mut handler = Self {
+        let instance = app.create(&ApplicationContext::new(&mut renderer_handle));
+        let handler = Self {
             app,
+            instance,
             graph,
             last_tick: time::Instant::now(),
             renderer,
@@ -148,20 +162,20 @@ impl<A: Application> AppHandler<A> {
             timestep,
         };
 
-        handler.app.init(&ApplicationContext::new(&mut handler.renderer_handle));
-
         Ok(handler)
     }
-    
-    fn exit(&mut self) {
+
+    fn exit(mut self) -> (A, RenderGraph) {
         self.shutdown.store(true, Ordering::SeqCst);
-        self.app.quit();
+        self.instance.quit();
         self.renderer.shutdown();
+
+        (self.app, self.graph)
     }
 
     fn redraw(&mut self) {
         if self.shutdown.load(Ordering::SeqCst) {
-            return
+            return;
         }
 
         while self.tick_rx.try_recv().is_ok() {
@@ -170,30 +184,29 @@ impl<A: Application> AppHandler<A> {
             self.last_tick = now;
 
             let ctx = ApplicationContext::new(&mut self.renderer_handle);
-            self.app.update(&ctx, dt);
+            self.instance.update(&ctx, dt);
         }
 
-        let res = self.renderer.render(|phase| {
-            self.app.render(phase)
-        });
+        let res = self.renderer.render(|phase| self.instance.render(phase));
 
         if let Err(err) = res {
-            self.app.handle_error(err);
-        }       
+            self.instance.handle_error(err);
+        }
     }
 
     fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
         if self.shutdown.load(Ordering::SeqCst) {
-            return
+            return;
         }
-        
+
         let width = size.width.max(1);
         let height = size.height.max(1);
-        
+
         self.renderer.resize(width, height);
-        
+
         let ctx = ApplicationContext::new(&mut self.renderer_handle);
-        self.app.handle_event(&ctx, Event::Resized(width, height));
+        self.instance
+            .handle_event(&ctx, Event::Resized(width, height));
     }
 }
 
@@ -230,7 +243,7 @@ impl core::HasWindowInfo for Window {
             height: self.inner_size().height,
             width: self.inner_size().width,
         }
-    }   
+    }
 
     fn request_redraw(&self) {
         self.request_redraw()
