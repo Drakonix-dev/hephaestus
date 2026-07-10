@@ -52,9 +52,11 @@ macro_rules! wrap_glam {
     };
 }
 
+wrap_glam!(Mat3, glam::Mat3);
+wrap_glam!(Mat4, glam::Mat4);
+wrap_glam!(Quat, glam::Quat);
 wrap_glam!(Vec2, glam::Vec2);
 wrap_glam!(Vec3, glam::Vec3);
-wrap_glam!(Quat, glam::Quat);
 
 impl Vec2 {
     pub fn new(x: f32, y: f32) -> Self {
@@ -83,39 +85,5 @@ impl Default for Vec3 {
 impl Default for Quat {
     fn default() -> Self {
         Self(glam::Quat::IDENTITY)
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Transform2D {
-    pub position: Vec2,
-    pub rotation: f32,
-    pub scale: Vec2,
-}
-
-impl Default for Transform2D {
-    fn default() -> Self {
-        Self {
-            position: Vec2::default(),
-            rotation: 0.0,
-            scale: Vec2::new(1.0, 1.0),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct Transform3D {
-    pub position: Vec3,
-    pub rotation: Quat,
-    pub scale: Vec3,
-}
-
-impl Default for Transform3D {
-    fn default() -> Self {
-        Self {
-            position: Vec3::default(),
-            rotation: Quat::default(),
-            scale: Vec3::new(1.0, 1.0, 1.0),
-        }
     }
 }

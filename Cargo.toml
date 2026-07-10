@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bytemuck = "1.23.1"
+bytemuck = { version = "1.23.1", features = ["derive"] }
 env_logger = "0.11.8"
-glam = { version = "0.33.2", features = ["libm"] }
+glam = { version = "0.33.2", features = ["bytemuck", "libm"] }
 image = "0.25.6"
 pollster = "0.4.0"
 raw-window-handle = "0.6.2"
