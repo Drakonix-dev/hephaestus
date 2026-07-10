@@ -1,7 +1,7 @@
 macro_rules! wrap_glam {
     ($name:ident, $inner:ty) => {
         #[repr(transparent)]
-        #[derive(Clone, Copy, Debug, PartialEq)]
+        #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
         pub struct $name($inner);
 
         impl std::ops::Deref for $name {

@@ -1,4 +1,4 @@
-use crate::math::{Mat3, Mat4, Quat, Vec2, Vec3};
+use crate::math::{Mat4, Quat, Vec2, Vec3};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Transform2D {
@@ -14,16 +14,6 @@ impl Default for Transform2D {
             rotation: 0.0,
             scale: Vec2::new(1.0, 1.0),
         }
-    }
-}
-
-impl Transform2D {
-    pub fn matrix(&self) -> Mat3 {
-        Mat3::from(glam::Mat3::from_scale_angle_translation(
-            glam::Vec2::from(self.scale),
-            self.rotation,
-            glam::Vec2::from(self.position),
-        ))
     }
 }
 
