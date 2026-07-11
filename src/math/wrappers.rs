@@ -2,20 +2,7 @@ macro_rules! wrap_glam {
     ($name:ident, $inner:ty) => {
         #[repr(transparent)]
         #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-        pub struct $name($inner);
-
-        impl std::ops::Deref for $name {
-            type Target = $inner;
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-
-        impl std::ops::DerefMut for $name {
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                &mut self.0
-            }
-        }
+        pub struct $name(pub(crate) $inner);
 
         impl From<$inner> for $name {
             fn from(v: $inner) -> Self {
@@ -52,11 +39,23 @@ macro_rules! wrap_glam {
     };
 }
 
+macro_rules! forward_self {
+    ($name:ident :: $method:ident) => {
+        impl $name {
+            pub fn $method(self) -> Self {
+                Self(self.0.$method())
+            }
+        }
+    };
+}
+
 wrap_glam!(Mat3, glam::Mat3);
 wrap_glam!(Mat4, glam::Mat4);
 wrap_glam!(Quat, glam::Quat);
 wrap_glam!(Vec2, glam::Vec2);
 wrap_glam!(Vec3, glam::Vec3);
+
+forward_self!(Mat4::inverse);
 
 impl Vec2 {
     pub fn new(x: f32, y: f32) -> Self {

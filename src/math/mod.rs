@@ -1,5 +1,6 @@
-pub mod camera;
+pub mod view;
 
+mod matrix;
 mod transform;
 mod wrappers;
 

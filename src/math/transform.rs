@@ -37,9 +37,9 @@ impl Default for Transform3D {
 impl Transform3D {
     pub fn matrix(&self) -> Mat4 {
         Mat4::from(glam::Mat4::from_scale_rotation_translation(
-            glam::Vec3::from(self.scale),
-            glam::Quat::from(self.rotation),
-            glam::Vec3::from(self.position),
+            self.scale.0,
+            self.rotation.0,
+            self.position.0,
         ))
     }
 }
