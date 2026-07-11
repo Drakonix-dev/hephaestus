@@ -1,8 +1,5 @@
 use core::time;
-use std::{
-    error::Error,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::{cell::Cell, error::Error};
 
 use crate::{
     events::Event,
@@ -28,24 +25,20 @@ pub trait ApplicationInstance {
 }
 
 pub struct ApplicationContext<'a> {
-    exit_requested: AtomicBool,
+    exit_requested: &'a Cell<bool>,
     pub renderer: &'a mut RendererHandle,
 }
 
 impl<'a> ApplicationContext<'a> {
-    pub(crate) fn new(renderer: &'a mut RendererHandle) -> Self {
+    pub(crate) fn new(exit_requested: &'a Cell<bool>, renderer: &'a mut RendererHandle) -> Self {
         Self {
-            exit_requested: AtomicBool::new(false),
+            exit_requested,
             renderer,
         }
     }
 
-    pub fn exit_requested(&self) -> bool {
-        self.exit_requested.load(Ordering::SeqCst)
-    }
-
     pub fn request_exit(&self) {
-        self.exit_requested.store(true, Ordering::SeqCst);
+        self.exit_requested.set(true);
     }
 }
 

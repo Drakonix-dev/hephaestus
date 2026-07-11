@@ -1,9 +1,7 @@
 use std::{
+    cell::Cell,
     mem::{self},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
+    sync::mpsc,
     thread, time,
 };
 
@@ -68,6 +66,17 @@ impl<A: Application> AppState<A> {
 }
 
 impl<A: Application> ApplicationHandler for AppState<A> {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        match self {
+            AppState::Initialized(handler) => {
+                if handler.exit_requested.get() {
+                    event_loop.exit();
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
@@ -104,12 +113,12 @@ impl<A: Application> ApplicationHandler for AppState<A> {
 
 struct AppHandler<A: Application> {
     app: A,
+    exit_requested: Cell<bool>,
     instance: A::Instance,
     graph: RenderGraph,
     last_tick: time::Instant,
     renderer: Renderer<WgpuRenderer<Window>>,
     renderer_handle: RendererHandle,
-    shutdown: AtomicBool,
     simulation: thread::JoinHandle<()>,
     tick_rx: mpsc::Receiver<()>,
     timestep: time::Duration,
@@ -148,15 +157,20 @@ impl<A: Application> AppHandler<A> {
             Err(err) => return Err((app, err)),
         };
 
-        let instance = app.create(&ApplicationContext::new(&mut renderer_handle));
+        let exit_requested = Cell::new(false);
+
+        let instance = app.create(&ApplicationContext::new(
+            &exit_requested,
+            &mut renderer_handle,
+        ));
         let handler = Self {
             app,
+            exit_requested,
             instance,
             graph,
             last_tick: time::Instant::now(),
             renderer,
             renderer_handle,
-            shutdown: AtomicBool::new(false),
             simulation,
             tick_rx,
             timestep,
@@ -165,25 +179,33 @@ impl<A: Application> AppHandler<A> {
         Ok(handler)
     }
 
-    fn exit(mut self) -> (A, RenderGraph) {
-        self.shutdown.store(true, Ordering::SeqCst);
-        self.instance.quit();
-        self.renderer.shutdown();
+    fn exit(self) -> (A, RenderGraph) {
+        let AppHandler {
+            app,
+            mut instance,
+            graph,
+            mut renderer,
+            simulation,
+            tick_rx,
+            ..
+        } = self;
 
-        (self.app, self.graph)
+        instance.quit();
+        renderer.shutdown();
+
+        drop(tick_rx);
+        let _ = simulation.join();
+
+        (app, graph)
     }
 
     fn redraw(&mut self) {
-        if self.shutdown.load(Ordering::SeqCst) {
-            return;
-        }
-
         while self.tick_rx.try_recv().is_ok() {
             let now = time::Instant::now();
             let dt = now - self.last_tick;
             self.last_tick = now;
 
-            let ctx = ApplicationContext::new(&mut self.renderer_handle);
+            let ctx = ApplicationContext::new(&self.exit_requested, &mut self.renderer_handle);
             self.instance.update(&ctx, dt);
         }
 
@@ -195,16 +217,12 @@ impl<A: Application> AppHandler<A> {
     }
 
     fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
-        if self.shutdown.load(Ordering::SeqCst) {
-            return;
-        }
-
         let width = size.width.max(1);
         let height = size.height.max(1);
 
         self.renderer.resize(width, height);
 
-        let ctx = ApplicationContext::new(&mut self.renderer_handle);
+        let ctx = ApplicationContext::new(&self.exit_requested, &mut self.renderer_handle);
         self.instance
             .handle_event(&ctx, Event::Resized(width, height));
     }
