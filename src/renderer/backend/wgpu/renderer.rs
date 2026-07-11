@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
-use crate::{platform::core::{FrameError, HasWindowInfo, PlatformError}, renderer::{self, backend::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{math::Mat4, platform::core::{FrameError, HasWindowInfo, PlatformError}, renderer::{self, backend::wgpu::{globals::{FrameGlobals, ModelUniformPool}, material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
 
 pub(crate) trait Window: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static {}
 impl <T: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static> Window for T {}
@@ -11,8 +11,10 @@ pub struct Renderer<W: Window> {
     adapter: wgpu::Adapter,
     config: Option<wgpu::SurfaceConfiguration>,
     device: wgpu::Device,
+    globals: FrameGlobals,
     materials: MaterialManager,
     meshes: MeshManager,
+    model_pool: ModelUniformPool,
     pipelines: PipelineManager,
     queue: wgpu::Queue,
     shaders: ShaderManager,
@@ -52,12 +54,17 @@ impl<W: Window> Renderer<W> {
             })
             .await?;
 
+        let globals = FrameGlobals::new(&device);
+        let model_pool = ModelUniformPool::new(&device);
+
         Ok(Self {
             adapter,
             config: None,
             device,
+            globals,
             materials: MaterialManager::new(),
             meshes: MeshManager::new(),
+            model_pool,
             pipelines: PipelineManager::new(),
             queue,
             shaders: ShaderManager::new(),
@@ -101,7 +108,7 @@ impl<W: Window> Renderer<W> {
         self.config = Some(config);
     }
 
-    fn draw_mesh(&mut self, rpass: &mut wgpu::RenderPass, draw: &DrawMesh) -> Result<(), PlatformError> {
+    fn draw_mesh(&mut self, rpass: &mut wgpu::RenderPass, draw: &DrawMesh, model_offset: u32) -> Result<(), PlatformError> {
         let mesh = self.meshes.get_mesh(&draw.mesh)
             .ok_or(PlatformError::AssetNotFound(format!("{:?} not found", draw.mesh)))?;
         let material = self.materials.get_material(&draw.material)
@@ -111,10 +118,12 @@ impl<W: Window> Renderer<W> {
         let pipeline = self.pipelines.get_or_create_pipeline(
             self.surface_format.ok_or(
                 PlatformError::Frame(FrameError::Other(String::from("surface format not found"))))?,
-            &self.device, &shader);
+            &self.device, &shader, &self.globals.layout, &self.model_pool.layout);
 
         rpass.set_pipeline(&pipeline.pipeline);
-        rpass.set_bind_group(0, &material.bind_group, &[]);
+        rpass.set_bind_group(0, &self.globals.bind_group, &[]);
+        rpass.set_bind_group(1, &material.bind_group, &[]);
+        rpass.set_bind_group(2, &self.model_pool.bind_group, &[model_offset]);
         rpass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
 
         if mesh.index_count > 0 {
@@ -158,6 +167,10 @@ impl<W: Window> RendererBackend for Renderer<W> {
         self.textures.create_texture(&self.device, &self.queue, handle, &definition)
     }
     
+    fn reserve_draw_capacity(&mut self, count: u64) {
+        self.model_pool.reserve(&self.device, count);
+    }
+
     fn resize(&mut self, width: u32, height: u32) {
         if self.config.is_none() {
             self.configure_surface();
@@ -167,6 +180,10 @@ impl<W: Window> RendererBackend for Renderer<W> {
         self.config.as_mut().unwrap().width = width.max(1);
         self.config.as_mut().unwrap().height = height.max(1);
         self.surface.configure(&self.device, self.config.as_ref().unwrap());
+    }
+
+    fn set_camera(&mut self, view_proj: Mat4) {
+        self.globals.write(&self.queue, view_proj);
     }
 
     fn shutdown(&mut self) {
@@ -180,6 +197,7 @@ impl<W: Window> RendererBackend for Renderer<W> {
 pub(crate) struct RenderFrame<'a, W: Window> {
     first_pass: bool,
     frame: wgpu::SurfaceTexture,
+    model_cursor: u64,
     renderer: &'a mut Renderer<W>,
     view: wgpu::TextureView,
 }
@@ -189,6 +207,7 @@ impl<'a, W: Window> RenderFrame<'a, W> {
         Self {
             first_pass: true,
             frame,
+            model_cursor: 0,
             renderer,
             view,
         }
@@ -227,7 +246,15 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
 
             for cmd in cmds {
                 match cmd {
-                    DrawCommand::Mesh(mesh) => self.renderer.draw_mesh(&mut rpass, mesh)?,
+                    DrawCommand::Mesh(mesh) => {
+                        let offset = self.renderer.model_pool.write(
+                            &self.renderer.queue,
+                            self.model_cursor,
+                            &mesh.transform,
+                        )?;
+                        self.model_cursor += 1;
+                        self.renderer.draw_mesh(&mut rpass, mesh, offset)?;
+                    }
                 }
             }
         }

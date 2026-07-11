@@ -6,7 +6,7 @@ pub use api::*;
 
 use std::collections::HashMap;
 
-use crate::platform::core::PlatformError;
+use crate::{math::Mat4, platform::core::PlatformError};
 
 pub(crate) trait RenderFrame<'a> {
     fn execute_commands(
@@ -39,7 +39,9 @@ pub(crate) trait RendererBackend {
         handle: TextureHandle,
         definition: TextureDefinition,
     ) -> Result<(), PlatformError>;
+    fn reserve_draw_capacity(&mut self, count: u64);
     fn resize(&mut self, width: u32, height: u32);
+    fn set_camera(&mut self, view_proj: Mat4);
     fn shutdown(&mut self);
 }
 
@@ -77,16 +79,27 @@ impl<B: RendererBackend> Renderer<B> {
 
         self.process_staging_uploads(&mut cmds)?;
 
-        let mut frame = self.backend.begin_frame()?;
+        let mut draws_by_phase: Vec<(RenderPhase, Vec<DrawCommand>)> =
+            Vec::with_capacity(self.phases.len());
+        let mut total_draws: u64 = 0;
 
-        for phase in &self.phases {
-            let mut extra = phased_draws(phase).unwrap_or_default();
+        for phase in self.phases.iter().copied() {
+            let mut extra = phased_draws(&phase).unwrap_or_default();
 
-            if let Some(draws) = self.staged_draws.get_mut(phase) {
+            if let Some(draws) = self.staged_draws.get_mut(&phase) {
                 extra.append(draws);
             }
 
-            frame.execute_commands(phase, &extra)?;
+            total_draws += extra.len() as u64;
+            draws_by_phase.push((phase, extra));
+        }
+
+        self.backend.reserve_draw_capacity(total_draws);
+
+        let mut frame = self.backend.begin_frame()?;
+
+        for (phase, cmds) in &draws_by_phase {
+            frame.execute_commands(phase, cmds)?;
         }
 
         frame.present_frame();
@@ -130,6 +143,9 @@ impl<B: RendererBackend> Renderer<B> {
                         let cmds = self.staged_draws.entry(phase).or_default();
                         cmds.append(&mut renderable.draw(phase));
                     }
+                }
+                RenderCommand::SetCamera(view_proj) => {
+                    self.backend.set_camera(view_proj);
                 }
             }
         }

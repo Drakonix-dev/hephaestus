@@ -17,10 +17,17 @@ impl PipelineManager {
         }
     }
 
-    fn create_pipeline(&mut self, format: wgpu::TextureFormat, device: &wgpu::Device, shader: &ShaderInstance) -> PipelineInstance {
+    fn create_pipeline(
+        &mut self,
+        format: wgpu::TextureFormat,
+        device: &wgpu::Device,
+        shader: &ShaderInstance,
+        globals_layout: &wgpu::BindGroupLayout,
+        model_layout: &wgpu::BindGroupLayout,
+    ) -> PipelineInstance {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&shader.layout],
+            bind_group_layouts: &[globals_layout, &shader.layout, model_layout],
             push_constant_ranges: &[],
         });
 
@@ -63,12 +70,19 @@ impl PipelineManager {
         PipelineInstance { pipeline }
     }
 
-    pub(crate) fn get_or_create_pipeline(&mut self, format: wgpu::TextureFormat, device: &wgpu::Device, shader: &ShaderInstance) -> &PipelineInstance {
-        if  !self.pipelines.contains_key(&shader.handle) {
-            let pipeline = self.create_pipeline(format, device, shader);
+    pub(crate) fn get_or_create_pipeline(
+        &mut self,
+        format: wgpu::TextureFormat,
+        device: &wgpu::Device,
+        shader: &ShaderInstance,
+        globals_layout: &wgpu::BindGroupLayout,
+        model_layout: &wgpu::BindGroupLayout,
+    ) -> &PipelineInstance {
+        if !self.pipelines.contains_key(&shader.handle) {
+            let pipeline = self.create_pipeline(format, device, shader, globals_layout, model_layout);
             self.pipelines.insert(shader.handle, pipeline);
         }
-        
+
         self.pipelines.get(&shader.handle).unwrap()
     }
 }

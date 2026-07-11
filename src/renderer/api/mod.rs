@@ -18,7 +18,7 @@ pub use texture::*;
 
 use std::collections::HashMap;
 
-use crate::platform::core::PlatformError;
+use crate::{math::Mat4, platform::core::PlatformError};
 
 // RendererHandle defines the handle to the renderer.
 pub struct RendererHandle {
@@ -81,5 +81,9 @@ impl RendererHandle {
 
     pub fn render(&self, renderable: Box<dyn Renderable + Send>) {
         self.queue.push(RenderCommand::Render(renderable));
+    }
+
+    pub fn set_camera(&self, view_proj: Mat4) {
+        self.queue.push(RenderCommand::SetCamera(view_proj));
     }
 }

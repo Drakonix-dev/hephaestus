@@ -1,7 +1,7 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use crate::{
-    math::{Transform2D, Transform3D},
+    math::{Mat4, Transform2D, Transform3D},
     renderer::{
         MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase,
         ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle,
@@ -16,6 +16,7 @@ pub(crate) enum RenderCommand {
     CreateTexture(TextureHandle, TextureDefinition),
     Draw(RenderPhase, DrawCommand),
     Render(Box<dyn Renderable + Send>),
+    SetCamera(Mat4),
 }
 
 // DrawCommand defines a command for drawing something to the window.
