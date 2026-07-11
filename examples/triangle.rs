@@ -1,18 +1,24 @@
+use std::time::Duration;
+
 use hephaestus::{
     ApplicationContext, ApplicationInstance,
-    math::Transform3D,
+    events::Event,
+    math::{Transform3D, Vec3},
     renderer::{
         BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MaterialParams,
-        MaterialUniforms, MeshDefinition, MeshHandle, RenderDomain, RenderGraph, RenderPhase,
-        SubPhase, Transform,
+        MaterialUniforms, MeshDefinition, MeshHandle, PerspectiveProjection, Projection,
+        RenderDomain, RenderGraph, RenderPhase, SubPhase, Transform,
     },
 };
 
 const TRIANGLE_PHASE: RenderPhase = RenderPhase::new(RenderDomain::World3D, Some(SubPhase::Opaque));
 
 struct TriangleExample {
-    mesh: MeshHandle,
+    aspect_ratio: f32,
+    camera: Transform3D,
     material: MaterialHandle,
+    mesh: MeshHandle,
+    projection: Projection,
 }
 
 impl TriangleExample {
@@ -36,11 +42,33 @@ impl TriangleExample {
 
         let mesh = ctx.renderer.create_mesh(MeshDefinition::triangle());
 
-        Self { mesh, material }
+        let camera = Transform3D {
+            position: Vec3::new(0.0, 0.0, 2.0),
+            ..Transform3D::default()
+        };
+
+        let projection = Projection::Perspective(PerspectiveProjection {
+            far: 100.0,
+            fovy: 60.0_f32.to_radians(),
+            near: 0.1,
+        });
+
+        Self {
+            aspect_ratio: 16.0 / 9.0,
+            camera,
+            material,
+            mesh,
+            projection,
+        }
     }
 }
 
 impl ApplicationInstance for TriangleExample {
+    fn handle_event(&mut self, _ctx: &ApplicationContext, event: Event) {
+        let Event::Resized(width, height) = event;
+        self.aspect_ratio = width as f32 / height.max(1) as f32;
+    }
+
     fn render(&mut self, phase: &RenderPhase) -> Option<Vec<DrawCommand>> {
         if *phase != TRIANGLE_PHASE {
             return None;
@@ -51,6 +79,11 @@ impl ApplicationInstance for TriangleExample {
             material: self.material,
             transform: Transform::Transform3D(Transform3D::default()),
         })])
+    }
+
+    fn update(&mut self, ctx: &ApplicationContext, _dt: Duration) {
+        let view_proj = self.projection.project(self.aspect_ratio) * self.camera.view_matrix();
+        ctx.renderer.set_camera(view_proj);
     }
 }
 

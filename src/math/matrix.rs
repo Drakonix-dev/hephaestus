@@ -8,3 +8,10 @@ impl Mat4 {
         ))
     }
 }
+
+impl std::ops::Mul for Mat4 {
+    type Output = Mat4;
+    fn mul(self, rhs: Mat4) -> Mat4 {
+        Mat4(self.0 * rhs.0)
+    }
+}

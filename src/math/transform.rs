@@ -42,4 +42,8 @@ impl Transform3D {
             self.position.0,
         ))
     }
+
+    pub fn view_matrix(&self) -> Mat4 {
+        Mat4::from_rotation_translation(self.rotation, self.position).inverse()
+    }
 }
