@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use image::ImageReader;
 
-use crate::{platform::core::PlatformError, renderer::{TextureDefinition, TextureDimension, TextureHandle}};
+use crate::{
+    platform::core::PlatformError,
+    renderer::{TextureDefinition, TextureDimension, TextureHandle},
+};
 
 pub(crate) struct TextureManager {
     textures: HashMap<TextureHandle, TextureInstance>,
@@ -28,14 +31,12 @@ impl TextureManager {
     ) -> Result<(), PlatformError> {
         let image = ImageReader::open(def.source.as_path())?
             .decode()
-            .or_else(|err| {
-                match err {
-                    image::ImageError::IoError(io) => Err(PlatformError::IoError(io)),
-                    _ => Err(PlatformError::AssetLoadFailed(def.source.clone())),
-                }
+            .or_else(|err| match err {
+                image::ImageError::IoError(io) => Err(PlatformError::IoError(io)),
+                _ => Err(PlatformError::AssetLoadFailed(def.source.clone())),
             })?;
-        
-        let rgba = image.to_rgb8();
+
+        let rgba = image.to_rgba8();
 
         use image::GenericImageView;
         let (width, height) = image.dimensions();
@@ -43,12 +44,17 @@ impl TextureManager {
         let (dimension, depth_or_layers) = match def.dimension {
             TextureDimension::D1 => (wgpu::TextureDimension::D1, 1),
             TextureDimension::D2 => (wgpu::TextureDimension::D2, 1),
-            TextureDimension::D3 => (wgpu::TextureDimension::D3, def.depth
-                .ok_or(PlatformError::BadAssetDefinition(String::from("No depth for D3 texture")))?),
+            TextureDimension::D3 => (
+                wgpu::TextureDimension::D3,
+                def.depth
+                    .ok_or(PlatformError::BadAssetDefinition(String::from(
+                        "No depth for D3 texture",
+                    )))?,
+            ),
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Texture"), 
+            label: Some("Texture"),
             size: wgpu::Extent3d {
                 width: width,
                 height: height,
@@ -64,25 +70,24 @@ impl TextureManager {
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &texture,  
+                texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &rgba,
             wgpu::TexelCopyBufferLayout {
-              offset: 0,
-              bytes_per_row: Some(4 * width),
-              rows_per_image: Some(height),
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
             },
             texture.size(),
         );
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.textures.insert(handle, TextureInstance {
-            view: texture_view, 
-        });
+        self.textures
+            .insert(handle, TextureInstance { view: texture_view });
 
         Ok(())
     }
