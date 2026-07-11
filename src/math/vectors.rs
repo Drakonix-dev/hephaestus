@@ -16,11 +16,21 @@ impl Vec3 {
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Self(glam::Vec3::new(x, y, z))
     }
+
+    pub fn normalize(self) -> Self {
+        Self(self.0.normalize())
+    }
 }
 
 impl Default for Vec3 {
     fn default() -> Self {
         Self(glam::Vec3::ZERO)
+    }
+}
+
+impl Quat {
+    pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
+        Quat::from(glam::Quat::from_axis_angle(glam::Vec3::from(axis), angle))
     }
 }
 

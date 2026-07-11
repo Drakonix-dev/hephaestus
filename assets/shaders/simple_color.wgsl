@@ -34,7 +34,7 @@ var<uniform> model: Model;
 fn vs_main(input: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   out.clip_pos = globals.view_proj * model.model * vec4(input.position, 1.0);
-  out.normal = input.normal;
+  out.normal = normalize((model.model * vec4(input.normal, 0.0)).xyz);
   return out;
 }
 
@@ -42,5 +42,6 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let light_dir = normalize(vec3(0.5, 1.0, 0.5));
   let diff = max(dot(in.normal, light_dir), 0.0);
-  return material.base_color * diff;
+  let lit = diff * 0.8 + 0.2;
+  return material.base_color * lit;
 }
