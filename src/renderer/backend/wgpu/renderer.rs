@@ -7,7 +7,7 @@ use crate::{
     platform::core::{FrameError, HasWindowInfo, PlatformError},
     renderer::{
         self, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition,
-        MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle,
+        MeshHandle, RenderDomain, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle,
         TextureDefinition, TextureHandle,
         backend::wgpu::{
             globals::{FrameGlobals, ModelUniformPool},
@@ -158,6 +158,7 @@ impl<W: Window> Renderer<W> {
         rpass: &mut wgpu::RenderPass,
         draw: &DrawMesh,
         model_offset: u32,
+        depth_enabled: bool,
     ) -> Result<(), PlatformError> {
         let mesh = self
             .meshes
@@ -192,9 +193,7 @@ impl<W: Window> Renderer<W> {
             &shader,
             &self.globals.layout,
             &self.model_pool.layout,
-            RenderState {
-                depth_enabled: true,
-            },
+            RenderState { depth_enabled },
         );
 
         rpass.set_pipeline(&pipeline.pipeline);
@@ -347,6 +346,26 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
             wgpu::LoadOp::Load
         };
 
+        let attachment = wgpu::RenderPassDepthStencilAttachment {
+            view: self
+                .renderer
+                .depth_view
+                .as_ref()
+                .expect("depth view should be configured before the first frame"),
+            depth_ops: Some(wgpu::Operations {
+                load: depth_load_op,
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        };
+
+        let depth_stencil_attachment = match phase.domain {
+            RenderDomain::Other(_) => Some(attachment),
+            RenderDomain::World3D => Some(attachment),
+            _ => None,
+        };
+        let depth_enabled = depth_stencil_attachment.is_some();
+
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -359,18 +378,7 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self
-                        .renderer
-                        .depth_view
-                        .as_ref()
-                        .expect("depth view should be configured before the first frame"),
-                    depth_ops: Some(wgpu::Operations {
-                        load: depth_load_op,
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
+                depth_stencil_attachment,
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
@@ -384,7 +392,8 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
                             &mesh.transform,
                         )?;
                         self.model_cursor += 1;
-                        self.renderer.draw_mesh(&mut rpass, mesh, offset)?;
+                        self.renderer
+                            .draw_mesh(&mut rpass, mesh, offset, depth_enabled)?;
                     }
                 }
             }
