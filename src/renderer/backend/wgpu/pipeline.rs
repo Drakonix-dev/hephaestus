@@ -2,8 +2,15 @@ use std::collections::HashMap;
 
 use crate::renderer::{backend::wgpu::shader::ShaderInstance, ShaderHandle, Vertex};
 
+pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct RenderState {
+    pub(crate) depth_enabled: bool,
+}
+
 pub(crate) struct PipelineManager {
-    pipelines: HashMap<ShaderHandle, PipelineInstance>,
+    pipelines: HashMap<(ShaderHandle, RenderState), PipelineInstance>,
 }
 
 pub(crate) struct PipelineInstance {
@@ -17,10 +24,18 @@ impl PipelineManager {
         }
     }
 
-    fn create_pipeline(&mut self, format: wgpu::TextureFormat, device: &wgpu::Device, shader: &ShaderInstance) -> PipelineInstance {
+    fn create_pipeline(
+        &mut self,
+        format: wgpu::TextureFormat,
+        device: &wgpu::Device,
+        shader: &ShaderInstance,
+        globals_layout: &wgpu::BindGroupLayout,
+        model_layout: &wgpu::BindGroupLayout,
+        render_state: RenderState,
+    ) -> PipelineInstance {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&shader.layout],
+            bind_group_layouts: &[globals_layout, &shader.layout, model_layout],
             push_constant_ranges: &[],
         });
 
@@ -32,6 +47,18 @@ impl PipelineManager {
                 1 => Float32x3, // normal
                 2 => Float32x2, // uv
             ],
+        };
+
+        let depth_stencil = if render_state.depth_enabled {
+            Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            })
+        } else {
+            None
         };
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -54,7 +81,7 @@ impl PipelineManager {
                 })],
             }),
             primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
+            depth_stencil,
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
@@ -63,12 +90,22 @@ impl PipelineManager {
         PipelineInstance { pipeline }
     }
 
-    pub(crate) fn get_or_create_pipeline(&mut self, format: wgpu::TextureFormat, device: &wgpu::Device, shader: &ShaderInstance) -> &PipelineInstance {
-        if  !self.pipelines.contains_key(&shader.handle) {
-            let pipeline = self.create_pipeline(format, device, shader);
-            self.pipelines.insert(shader.handle, pipeline);
+    pub(crate) fn get_or_create_pipeline(
+        &mut self,
+        format: wgpu::TextureFormat,
+        device: &wgpu::Device,
+        shader: &ShaderInstance,
+        globals_layout: &wgpu::BindGroupLayout,
+        model_layout: &wgpu::BindGroupLayout,
+        render_state: RenderState,
+    ) -> &PipelineInstance {
+        let key = (shader.handle, render_state);
+
+        if !self.pipelines.contains_key(&key) {
+            let pipeline = self.create_pipeline(format, device, shader, globals_layout, model_layout, render_state);
+            self.pipelines.insert(key, pipeline);
         }
-        
-        self.pipelines.get(&shader.handle).unwrap()
+
+        self.pipelines.get(&key).unwrap()
     }
 }

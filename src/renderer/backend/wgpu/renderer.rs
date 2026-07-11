@@ -2,17 +2,58 @@ use std::sync::Arc;
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
-use crate::{platform::core::{FrameError, HasWindowInfo, PlatformError}, renderer::{self, backend::wgpu::{material::MaterialManager, mesh::MeshManager, pipeline::PipelineManager, shader::ShaderManager, texture::TextureManager}, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle}};
+use crate::{
+    math::Mat4,
+    platform::core::{FrameError, HasWindowInfo, PlatformError},
+    renderer::{
+        self, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition,
+        MeshHandle, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle,
+        TextureDefinition, TextureHandle,
+        backend::wgpu::{
+            globals::{FrameGlobals, ModelUniformPool},
+            material::MaterialManager,
+            mesh::MeshManager,
+            pipeline::{DEPTH_FORMAT, PipelineManager, RenderState},
+            shader::ShaderManager,
+            texture::TextureManager,
+        },
+    },
+};
 
-pub(crate) trait Window: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static {}
-impl <T: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static> Window for T {}
+fn create_depth_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Depth Texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+pub(crate) trait Window:
+    HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
+{
+}
+impl<T: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static> Window for T {}
 
 pub struct Renderer<W: Window> {
     adapter: wgpu::Adapter,
     config: Option<wgpu::SurfaceConfiguration>,
+    depth_view: Option<wgpu::TextureView>,
     device: wgpu::Device,
+    globals: FrameGlobals,
     materials: MaterialManager,
     meshes: MeshManager,
+    model_pool: ModelUniformPool,
     pipelines: PipelineManager,
     queue: wgpu::Queue,
     shaders: ShaderManager,
@@ -30,14 +71,14 @@ impl<W: Window> Renderer<W> {
             backends: wgpu::Backends::PRIMARY,
             ..Default::default()
         });
-        
+
         let surface = instance.create_surface(window.clone())?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-               power_preference: wgpu::PowerPreference::default(),
-               compatible_surface: Some(&surface),
-               force_fallback_adapter: false,
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
             })
             .await?;
 
@@ -52,12 +93,18 @@ impl<W: Window> Renderer<W> {
             })
             .await?;
 
+        let globals = FrameGlobals::new(&device);
+        let model_pool = ModelUniformPool::new(&device);
+
         Ok(Self {
             adapter,
             config: None,
+            depth_view: None,
             device,
+            globals,
             materials: MaterialManager::new(),
             meshes: MeshManager::new(),
+            model_pool,
             pipelines: PipelineManager::new(),
             queue,
             shaders: ShaderManager::new(),
@@ -70,17 +117,21 @@ impl<W: Window> Renderer<W> {
 
     pub(crate) fn configure_surface(&mut self) {
         let window_info = self.window.get_window_info();
-        
+
         let caps = self.surface.get_capabilities(&self.adapter);
-        let format = caps.formats.iter()
+        let format = caps
+            .formats
+            .iter()
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(caps.formats[0]);
-        let present_mode = caps.present_modes
+        let present_mode = caps
+            .present_modes
             .first()
             .copied()
             .unwrap_or(wgpu::PresentMode::Fifo);
-        let alpha_mode = caps.alpha_modes
+        let alpha_mode = caps
+            .alpha_modes
             .first()
             .copied()
             .unwrap_or(wgpu::CompositeAlphaMode::Opaque);
@@ -98,23 +149,58 @@ impl<W: Window> Renderer<W> {
 
         self.surface.configure(&self.device, &config);
         self.surface_format = Some(format);
+        self.depth_view = Some(create_depth_view(&self.device, config.width, config.height));
         self.config = Some(config);
     }
 
-    fn draw_mesh(&mut self, rpass: &mut wgpu::RenderPass, draw: &DrawMesh) -> Result<(), PlatformError> {
-        let mesh = self.meshes.get_mesh(&draw.mesh)
-            .ok_or(PlatformError::AssetNotFound(format!("{:?} not found", draw.mesh)))?;
-        let material = self.materials.get_material(&draw.material)
-            .ok_or(PlatformError::AssetNotFound(format!("{:?} not found", draw.material)))?;
-        let shader = self.shaders.get_shader(&material.shader)
-            .ok_or(PlatformError::AssetNotFound(format!("{:?} not found", material.shader)))?;
+    fn draw_mesh(
+        &mut self,
+        rpass: &mut wgpu::RenderPass,
+        draw: &DrawMesh,
+        model_offset: u32,
+    ) -> Result<(), PlatformError> {
+        let mesh = self
+            .meshes
+            .get_mesh(&draw.mesh)
+            .ok_or(PlatformError::AssetNotFound(format!(
+                "{:?} not found",
+                draw.mesh
+            )))?;
+
+        let material =
+            self.materials
+                .get_material(&draw.material)
+                .ok_or(PlatformError::AssetNotFound(format!(
+                    "{:?} not found",
+                    draw.material
+                )))?;
+
+        let shader =
+            self.shaders
+                .get_shader(&material.shader)
+                .ok_or(PlatformError::AssetNotFound(format!(
+                    "{:?} not found",
+                    material.shader
+                )))?;
+
         let pipeline = self.pipelines.get_or_create_pipeline(
-            self.surface_format.ok_or(
-                PlatformError::Frame(FrameError::Other(String::from("surface format not found"))))?,
-            &self.device, &shader);
+            self.surface_format
+                .ok_or(PlatformError::Frame(FrameError::Other(String::from(
+                    "surface format not found",
+                ))))?,
+            &self.device,
+            &shader,
+            &self.globals.layout,
+            &self.model_pool.layout,
+            RenderState {
+                depth_enabled: true,
+            },
+        );
 
         rpass.set_pipeline(&pipeline.pipeline);
-        rpass.set_bind_group(0, &material.bind_group, &[]);
+        rpass.set_bind_group(0, &self.globals.bind_group, &[]);
+        rpass.set_bind_group(1, &material.bind_group, &[]);
+        rpass.set_bind_group(2, &self.model_pool.bind_group, &[model_offset]);
         rpass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
 
         if mesh.index_count > 0 {
@@ -128,7 +214,7 @@ impl<W: Window> Renderer<W> {
 
 impl<W: Window> RendererBackend for Renderer<W> {
     type Frame<'a> = RenderFrame<'a, W>;
-    
+
     fn begin_frame<'a>(&'a mut self) -> Result<Self::Frame<'a>, PlatformError> {
         if self.config.is_none() {
             self.configure_surface();
@@ -137,36 +223,68 @@ impl<W: Window> RendererBackend for Renderer<W> {
         self.window.request_redraw();
 
         let frame = self.surface.get_current_texture()?;
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         Ok(RenderFrame::new(self, frame, view))
     }
-    
-    fn create_material(&mut self, handle: MaterialHandle, definition: MaterialDefinition) -> Result<(), PlatformError> {
-        self.materials.create_material(&self.device, &self.shaders, &self.textures, handle, &definition)
+
+    fn create_material(
+        &mut self,
+        handle: MaterialHandle,
+        definition: MaterialDefinition,
+    ) -> Result<(), PlatformError> {
+        self.materials.create_material(
+            &self.device,
+            &self.shaders,
+            &self.textures,
+            handle,
+            &definition,
+        )
     }
-    
+
     fn create_mesh(&mut self, handle: MeshHandle, definition: MeshDefinition) {
         self.meshes.create_mesh(&self.device, handle, &definition);
     }
-    
-    fn create_shader(&mut self, handle: ShaderHandle, definition: ShaderDefinition) -> Result<(), PlatformError> {
-        self.shaders.create_shader(&self.device, handle, &definition)
+
+    fn create_shader(
+        &mut self,
+        handle: ShaderHandle,
+        definition: ShaderDefinition,
+    ) -> Result<(), PlatformError> {
+        self.shaders
+            .create_shader(&self.device, handle, &definition)
     }
-    
-    fn create_texture(&mut self, handle: TextureHandle, definition: TextureDefinition) -> Result<(), PlatformError> {
-        self.textures.create_texture(&self.device, &self.queue, handle, &definition)
+
+    fn create_texture(
+        &mut self,
+        handle: TextureHandle,
+        definition: TextureDefinition,
+    ) -> Result<(), PlatformError> {
+        self.textures
+            .create_texture(&self.device, &self.queue, handle, &definition)
     }
-    
+
+    fn reserve_draw_capacity(&mut self, count: u64) {
+        self.model_pool.reserve(&self.device, count);
+    }
+
     fn resize(&mut self, width: u32, height: u32) {
         if self.config.is_none() {
             self.configure_surface();
-            return
+            return;
         }
 
         self.config.as_mut().unwrap().width = width.max(1);
         self.config.as_mut().unwrap().height = height.max(1);
-        self.surface.configure(&self.device, self.config.as_ref().unwrap());
+        self.surface
+            .configure(&self.device, self.config.as_ref().unwrap());
+        self.depth_view = Some(create_depth_view(&self.device, width.max(1), height.max(1)));
+    }
+
+    fn set_camera(&mut self, view_proj: Mat4) {
+        self.globals.write(&self.queue, view_proj);
     }
 
     fn shutdown(&mut self) {
@@ -180,15 +298,21 @@ impl<W: Window> RendererBackend for Renderer<W> {
 pub(crate) struct RenderFrame<'a, W: Window> {
     first_pass: bool,
     frame: wgpu::SurfaceTexture,
+    model_cursor: u64,
     renderer: &'a mut Renderer<W>,
     view: wgpu::TextureView,
 }
 
 impl<'a, W: Window> RenderFrame<'a, W> {
-    fn new(renderer: &'a mut Renderer<W>, frame: wgpu::SurfaceTexture, view: wgpu::TextureView) -> Self {
+    fn new(
+        renderer: &'a mut Renderer<W>,
+        frame: wgpu::SurfaceTexture,
+        view: wgpu::TextureView,
+    ) -> Self {
         Self {
             first_pass: true,
             frame,
+            model_cursor: 0,
             renderer,
             view,
         }
@@ -196,14 +320,29 @@ impl<'a, W: Window> RenderFrame<'a, W> {
 }
 
 impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
-    fn execute_commands(&mut self, phase: &RenderPhase, cmds: &[DrawCommand]) -> Result<(), PlatformError> {
-        let mut encoder = self.renderer.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some(&format!("Render {:?} Encode", phase)),
-        });
+    fn execute_commands(
+        &mut self,
+        phase: &RenderPhase,
+        cmds: &[DrawCommand],
+    ) -> Result<(), PlatformError> {
+        let mut encoder =
+            self.renderer
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some(&format!("Render {:?} Encode", phase)),
+                });
 
-        let load_op = if self.first_pass {
-            self.first_pass = false;
+        let is_first_pass = self.first_pass;
+        self.first_pass = false;
+
+        let color_load_op = if is_first_pass {
             wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+        } else {
+            wgpu::LoadOp::Load
+        };
+
+        let depth_load_op = if is_first_pass {
+            wgpu::LoadOp::Clear(1.0)
         } else {
             wgpu::LoadOp::Load
         };
@@ -216,18 +355,37 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
-                        load: load_op,
+                        load: color_load_op,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: self
+                        .renderer
+                        .depth_view
+                        .as_ref()
+                        .expect("depth view should be configured before the first frame"),
+                    depth_ops: Some(wgpu::Operations {
+                        load: depth_load_op,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
 
             for cmd in cmds {
                 match cmd {
-                    DrawCommand::Mesh(mesh) => self.renderer.draw_mesh(&mut rpass, mesh)?,
+                    DrawCommand::Mesh(mesh) => {
+                        let offset = self.renderer.model_pool.write(
+                            &self.renderer.queue,
+                            self.model_cursor,
+                            &mesh.transform,
+                        )?;
+                        self.model_cursor += 1;
+                        self.renderer.draw_mesh(&mut rpass, mesh, offset)?;
+                    }
                 }
             }
         }
@@ -236,7 +394,7 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
 
         Ok(())
     }
-    
+
     fn present_frame(self) {
         self.frame.present();
     }

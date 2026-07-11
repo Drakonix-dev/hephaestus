@@ -1,4 +1,5 @@
 mod builtin;
+mod camera;
 mod commands;
 mod graph;
 mod material;
@@ -7,6 +8,7 @@ mod shader;
 mod texture;
 
 pub use builtin::*;
+pub use camera::*;
 pub use commands::*;
 pub use graph::*;
 pub use material::*;
@@ -16,7 +18,7 @@ pub use texture::*;
 
 use std::collections::HashMap;
 
-use crate::platform::core::PlatformError;
+use crate::{math::Mat4, platform::core::PlatformError};
 
 // RendererHandle defines the handle to the renderer.
 pub struct RendererHandle {
@@ -40,31 +42,36 @@ impl RendererHandle {
     }
 
     pub fn builtin_shader(&self, shader: BuiltinShader) -> Result<&ShaderHandle, PlatformError> {
-        self.builtin_shaders.get(&shader)
+        self.builtin_shaders
+            .get(&shader)
             .ok_or(PlatformError::AssetNotFound(shader.to_string()))
     }
 
     pub fn create_material(&self, definition: MaterialDefinition) -> MaterialHandle {
         let handle = MaterialHandle::new();
-        self.queue.push(RenderCommand::CreateMaterial(handle, definition));
+        self.queue
+            .push(RenderCommand::CreateMaterial(handle, definition));
         handle
     }
-    
+
     pub fn create_mesh(&self, definition: MeshDefinition) -> MeshHandle {
         let handle = MeshHandle::new();
-        self.queue.push(RenderCommand::CreateMesh(handle, definition));
+        self.queue
+            .push(RenderCommand::CreateMesh(handle, definition));
         handle
     }
 
     pub fn create_shader(&self, definition: ShaderDefinition) -> ShaderHandle {
         let handle = ShaderHandle::new();
-        self.queue.push(RenderCommand::CreateShader(handle, definition));
+        self.queue
+            .push(RenderCommand::CreateShader(handle, definition));
         handle
     }
 
     pub fn create_texture(&self, definition: TextureDefinition) -> TextureHandle {
         let handle = TextureHandle::new();
-        self.queue.push(RenderCommand::CreateTexture(handle, definition));
+        self.queue
+            .push(RenderCommand::CreateTexture(handle, definition));
         handle
     }
 
@@ -74,5 +81,9 @@ impl RendererHandle {
 
     pub fn render(&self, renderable: Box<dyn Renderable + Send>) {
         self.queue.push(RenderCommand::Render(renderable));
+    }
+
+    pub fn set_camera(&self, view_proj: Mat4) {
+        self.queue.push(RenderCommand::SetCamera(view_proj));
     }
 }

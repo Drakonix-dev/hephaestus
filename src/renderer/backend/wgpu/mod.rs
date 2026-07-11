@@ -1,3 +1,4 @@
+mod globals;
 mod material;
 mod mesh;
 mod pipeline;
