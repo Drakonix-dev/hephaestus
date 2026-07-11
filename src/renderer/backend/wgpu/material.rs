@@ -48,7 +48,22 @@ impl MaterialManager {
 
         let bind_group_layout = &shader.layout;
 
-        let entries = vec![
+        let sampler = if texture_views.is_empty() {
+            None
+        } else {
+            Some(device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Material Sampler"),
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                address_mode_w: wgpu::AddressMode::Repeat,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }))
+        };
+
+        let mut entries = vec![
             wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
@@ -62,6 +77,13 @@ impl MaterialManager {
             }
         }))
         .collect::<Vec<_>>();
+
+        if let Some(sampler) = &sampler {
+            entries.push(wgpu::BindGroupEntry {
+                binding: (texture_views.len() + 1) as u32,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            });
+        }
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
            label: Some("Material Bind Group"),

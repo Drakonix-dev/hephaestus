@@ -37,8 +37,6 @@ impl CubeExample {
                 textures: vec![],
                 uniforms: MaterialUniforms {
                     base_color: [1.0, 0.2, 0.2, 1.0],
-                    roughness: 1.0,
-                    metallic: 0.0,
                 },
             },
         });
