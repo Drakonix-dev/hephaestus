@@ -1,6 +1,7 @@
 use std::{mem, num::NonZeroU64};
 
 use crate::{
+    diagnostics::diag,
     math::Mat4,
     platform::core::{FrameError, PlatformError},
     renderer::Transform,
@@ -156,6 +157,13 @@ impl ModelUniformPool {
             new_capacity *= 2;
         }
 
+        tracing::debug!(
+            target: diag::UPLOAD,
+            from = self.capacity,
+            to = new_capacity,
+            "model uniform pool grown",
+        );
+
         *self = Self::with_capacity(device, new_capacity);
     }
 
@@ -166,6 +174,12 @@ impl ModelUniformPool {
         transform: &Transform,
     ) -> Result<u32, PlatformError> {
         if index >= self.capacity {
+            tracing::warn!(
+                target: diag::UPLOAD,
+                draws = index + 1,
+                capacity = self.capacity,
+                "model uniform pool exhausted mid-frame",
+            );
             return Err(PlatformError::Frame(FrameError::Other(format!(
                 "model uniform pool exhausted mid-frame ({} draws, capacity {}) - reserve() should have grown it first",
                 index + 1,

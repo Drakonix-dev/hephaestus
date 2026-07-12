@@ -4,6 +4,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{
     config::EngineConfig,
+    diagnostics::diag,
     math::Mat4,
     platform::core::{FrameError, HasWindowInfo, PlatformError},
     renderer::{
@@ -104,6 +105,14 @@ impl<W: Window> Renderer<W> {
             })
             .await?;
 
+        let adapter_info = adapter.get_info();
+        tracing::info!(
+            target: diag::PLATFORM,
+            adapter = %adapter_info.name,
+            backend = ?adapter_info.backend,
+            "adapter selected",
+        );
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
@@ -179,6 +188,10 @@ impl<W: Window> Renderer<W> {
         model_offset: u32,
         depth_enabled: bool,
     ) -> Result<(), PlatformError> {
+        #[cfg(feature = "detailed-spans")]
+        let _span =
+            tracing::trace_span!(target: diag::DRAW, "draw_mesh", mesh = ?draw.mesh).entered();
+
         let mesh = self
             .meshes
             .get_mesh(&draw.mesh)
@@ -357,6 +370,14 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
         phase: &RenderPhase,
         cmds: &[DrawCommand],
     ) -> Result<(), PlatformError> {
+        let _span = tracing::debug_span!(
+            target: diag::RENDER,
+            "phase",
+            phase = ?phase,
+            draws = cmds.len(),
+        )
+        .entered();
+
         let mut encoder =
             self.renderer
                 .device
@@ -464,6 +485,7 @@ impl From<wgpu::RequestDeviceError> for PlatformError {
 
 impl From<wgpu::SurfaceError> for PlatformError {
     fn from(err: wgpu::SurfaceError) -> Self {
+        tracing::warn!(target: diag::RENDER, error = ?err, "surface error");
         match err {
             wgpu::SurfaceError::Lost => PlatformError::Frame(FrameError::SwapchainLost),
             wgpu::SurfaceError::OutOfMemory => PlatformError::Frame(FrameError::OutOfMemory),

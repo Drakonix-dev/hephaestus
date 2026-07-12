@@ -5,10 +5,25 @@ edition = "2024"
 
 [dependencies]
 bytemuck = { version = "1.23.1", features = ["derive"] }
-env_logger = "0.11.8"
 glam = { version = "0.33.2", features = ["bytemuck", "libm"] }
 image = "0.25.6"
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"], optional = true }
+opentelemetry_sdk = { version = "0.32", optional = true }
 pollster = "0.4.0"
 raw-window-handle = "0.6.2"
+tracing = "0.1.44"
+tracing-opentelemetry = { version = "0.33", optional = true }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "registry", "std"] }
 wgpu = "27.0.1"
 winit = "0.30.12"
+
+[features]
+default = []
+detailed-spans = []
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
