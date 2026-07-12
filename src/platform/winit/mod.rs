@@ -83,10 +83,10 @@ impl<A: Application> AppState<A> {
 
 impl<A: Application> ApplicationHandler for AppState<A> {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if let AppState::Initialized(handler) = self {
-            if handler.exit_requested.get() {
-                event_loop.exit();
-            }
+        if let AppState::Initialized(handler) = self
+            && handler.exit_requested.get()
+        {
+            event_loop.exit();
         }
     }
 
