@@ -46,6 +46,7 @@ pub enum Transform {
 pub(crate) struct RenderQueue;
 
 impl RenderQueue {
+    #[allow(clippy::new_ret_no_self)]
     pub(crate) fn new() -> (RenderQueueWriter, RenderQueueReader) {
         let (tx, rx) = mpsc::channel();
         (RenderQueueWriter { tx }, RenderQueueReader { rx })

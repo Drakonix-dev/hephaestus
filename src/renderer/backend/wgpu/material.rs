@@ -2,7 +2,13 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
-use crate::{platform::core::PlatformError, renderer::{backend::wgpu::{shader::ShaderManager, texture::TextureManager}, MaterialDefinition, MaterialHandle, ShaderHandle}};
+use crate::{
+    platform::core::PlatformError,
+    renderer::{
+        MaterialDefinition, MaterialHandle, ShaderHandle,
+        backend::wgpu::{shader::ShaderManager, texture::TextureManager},
+    },
+};
 
 pub(crate) struct MaterialManager {
     materials: HashMap<MaterialHandle, MaterialInstance>,
@@ -28,12 +34,17 @@ impl MaterialManager {
         handle: MaterialHandle,
         def: &MaterialDefinition,
     ) -> Result<(), PlatformError> {
-        let shader = shaders.get_shader(&def.shader).
-            ok_or(PlatformError::AssetNotFound(def.shader.to_string()))?;
+        let shader = shaders
+            .get_shader(&def.shader)
+            .ok_or(PlatformError::AssetNotFound(def.shader.to_string()))?;
 
-        let texture_views: Vec<&wgpu::TextureView> = def.params.textures.iter()
+        let texture_views: Vec<&wgpu::TextureView> = def
+            .params
+            .textures
+            .iter()
             .map(|h| {
-                let tex = textures.get_texture(h)
+                let tex = textures
+                    .get_texture(h)
                     .ok_or(PlatformError::AssetNotFound(h.to_string()))?;
                 Ok(&tex.view)
             })
@@ -41,9 +52,9 @@ impl MaterialManager {
 
         let uniform_data = bytemuck::bytes_of(&def.params.uniforms);
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-           label: Some("Material Uniform Buffer"),
-           contents: uniform_data,
-           usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            label: Some("Material Uniform Buffer"),
+            contents: uniform_data,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
         let bind_group_layout = &shader.layout;
@@ -63,19 +74,20 @@ impl MaterialManager {
             }))
         };
 
-        let mut entries = vec![
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            },
-        ]
+        let mut entries = vec![wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform_buffer.as_entire_binding(),
+        }]
         .into_iter()
-        .chain(texture_views.iter().enumerate().map(|(i, view)| {
-            wgpu::BindGroupEntry {
-                binding: (i + 1) as u32,
-                resource: wgpu::BindingResource::TextureView(view),
-            }
-        }))
+        .chain(
+            texture_views
+                .iter()
+                .enumerate()
+                .map(|(i, view)| wgpu::BindGroupEntry {
+                    binding: (i + 1) as u32,
+                    resource: wgpu::BindingResource::TextureView(view),
+                }),
+        )
         .collect::<Vec<_>>();
 
         if let Some(sampler) = &sampler {
@@ -86,15 +98,18 @@ impl MaterialManager {
         }
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-           label: Some("Material Bind Group"),
-           layout: bind_group_layout,
-           entries: &entries,
+            label: Some("Material Bind Group"),
+            layout: bind_group_layout,
+            entries: &entries,
         });
 
-        self.materials.insert(handle, MaterialInstance {
-            bind_group,
-            shader: def.shader,
-        });
+        self.materials.insert(
+            handle,
+            MaterialInstance {
+                bind_group,
+                shader: def.shader,
+            },
+        );
 
         Ok(())
     }

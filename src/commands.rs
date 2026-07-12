@@ -10,6 +10,7 @@ pub(crate) enum EngineCommand {
 pub(crate) struct EngineCommandQueue;
 
 impl EngineCommandQueue {
+    #[allow(clippy::new_ret_no_self)]
     pub(crate) fn new() -> (EngineCommandWriter, EngineCommandReader) {
         let (tx, rx) = mpsc::channel();
         (EngineCommandWriter { tx }, EngineCommandReader { rx })

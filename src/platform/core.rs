@@ -31,7 +31,7 @@ impl error::Error for PlatformError {}
 
 impl fmt::Display for PlatformError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -49,7 +49,7 @@ impl From<PlatformError> for EngineError {
                 source: Some(Box::new(err)),
             },
             PlatformError::AssetNotFound(msg) => EngineError::Recoverable {
-                message: format!("Failed to find asset: {}", msg),
+                message: format!("Failed to find asset: {msg}"),
                 source: Some(Box::new(err)),
             },
             PlatformError::BadAssetDefinition(msg) => EngineError::Recoverable {
@@ -97,7 +97,7 @@ impl error::Error for FrameError {}
 
 impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
