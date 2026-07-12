@@ -3,8 +3,6 @@ use crate::{
     renderer::Viewport,
 };
 
-pub struct Camera;
-
 pub enum Projection {
     Perspective(PerspectiveProjection),
     Orthographic(OrthographicProjection),
