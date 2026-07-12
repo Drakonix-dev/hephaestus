@@ -199,19 +199,17 @@ impl<W: Window> Renderer<W> {
                 name: format!("{:?}", draw.mesh),
             })?;
 
-        let material =
-            self.materials
-                .get_material(&draw.material)
-                .ok_or_else(|| RenderError::AssetNotFound {
-                    name: format!("{:?}", draw.material),
-                })?;
+        let material = self.materials.get_material(&draw.material).ok_or_else(|| {
+            RenderError::AssetNotFound {
+                name: format!("{:?}", draw.material),
+            }
+        })?;
 
-        let shader =
-            self.shaders
-                .get_shader(&material.shader)
-                .ok_or_else(|| RenderError::AssetNotFound {
-                    name: format!("{:?}", material.shader),
-                })?;
+        let shader = self.shaders.get_shader(&material.shader).ok_or_else(|| {
+            RenderError::AssetNotFound {
+                name: format!("{:?}", material.shader),
+            }
+        })?;
 
         let pipeline = self.pipelines.get_or_create_pipeline(
             self.surface_format

@@ -44,7 +44,9 @@ impl MaterialManager {
             .map(|h| {
                 let tex = textures
                     .get_texture(h)
-                    .ok_or_else(|| RenderError::AssetNotFound { name: h.to_string() })?;
+                    .ok_or_else(|| RenderError::AssetNotFound {
+                        name: h.to_string(),
+                    })?;
                 Ok(&tex.view)
             })
             .collect::<Result<_, RenderError>>()?;
