@@ -2,7 +2,7 @@ use std::{path::PathBuf, time::Duration};
 
 use hephaestus::{
     ApplicationContext, ApplicationInstance,
-    events::Event,
+    config::EngineConfig,
     math::{Quat, Transform3D, Vec3},
     renderer::{
         BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MaterialParams,
@@ -17,7 +17,6 @@ const ROTATION_SPEED: f32 = 1.0;
 
 struct TexturedCubeExample {
     angle: f32,
-    aspect_ratio: f32,
     camera: Transform3D,
     cube: Transform3D,
     material: MaterialHandle,
@@ -66,7 +65,6 @@ impl TexturedCubeExample {
 
         Self {
             angle: 0.0,
-            aspect_ratio: 16.0 / 9.0,
             camera,
             cube: Transform3D::default(),
             material,
@@ -77,11 +75,6 @@ impl TexturedCubeExample {
 }
 
 impl ApplicationInstance for TexturedCubeExample {
-    fn handle_event(&mut self, _ctx: &ApplicationContext, event: Event) {
-        let Event::Resized(width, height) = event;
-        self.aspect_ratio = width as f32 / height.max(1) as f32;
-    }
-
     fn render(&mut self, phase: &RenderPhase) -> Option<Vec<DrawCommand>> {
         if *phase != CUBE_PHASE {
             return None;
@@ -99,12 +92,17 @@ impl ApplicationInstance for TexturedCubeExample {
         let axis = Vec3::new(1.0, 1.0, 1.0).normalize();
         self.cube.rotation = Quat::from_axis_angle(axis, self.angle);
 
-        let view_proj = self.projection.project(self.aspect_ratio) * self.camera.view_matrix();
+        let view_proj =
+            self.projection.project(ctx.renderer.viewport()) * self.camera.view_matrix();
         ctx.renderer.set_camera(view_proj);
     }
 }
 
 fn main() {
-    hephaestus::run_instance(TexturedCubeExample::new, RenderGraph::default())
-        .expect("failed to run application");
+    hephaestus::run_instance(
+        TexturedCubeExample::new,
+        EngineConfig::default(),
+        RenderGraph::default(),
+    )
+    .expect("failed to run application");
 }

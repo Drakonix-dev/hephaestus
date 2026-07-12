@@ -1,7 +1,11 @@
 use std::{
     cell::Cell,
     mem::{self},
-    sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+        mpsc,
+    },
     thread, time,
 };
 
@@ -14,24 +18,31 @@ use winit::{
 
 use super::core;
 use crate::{
-    Application, ApplicationContext, ApplicationInstance,
+    Application, ApplicationContext, ApplicationInstance, EngineHandle,
+    commands::{EngineCommand, EngineCommandQueue, EngineCommandReader},
+    config::{EngineConfig, WindowMode},
     events::Event,
     platform::core::PlatformError,
     renderer::{
-        RenderGraph, RenderQueue, Renderer, RendererHandle, backend::wgpu::Renderer as WgpuRenderer,
+        RenderGraph, RenderQueue, Renderer, RendererHandle, Viewport,
+        backend::wgpu::Renderer as WgpuRenderer,
     },
 };
 
 pub(crate) struct WinitPlatform;
 
 impl<'a> WinitPlatform {
-    pub fn run<A: Application + 'a>(app: A, graph: RenderGraph) -> Result<(), PlatformError> {
+    pub fn run<A: Application + 'a>(
+        app: A,
+        cfg: EngineConfig,
+        graph: RenderGraph,
+    ) -> Result<(), PlatformError> {
         env_logger::init();
 
         let event_loop = EventLoop::new()?;
         event_loop.set_control_flow(ControlFlow::Poll);
 
-        let mut app_state = AppState::Uninitialized { app, graph };
+        let mut app_state = AppState::Uninitialized { app, cfg, graph };
         let res = event_loop.run_app(&mut app_state)?;
 
         Ok(res)
@@ -41,15 +52,19 @@ impl<'a> WinitPlatform {
 enum AppState<A: Application> {
     Initialized(AppHandler<A>),
     MaybeUninit,
-    Uninitialized { app: A, graph: RenderGraph },
+    Uninitialized {
+        app: A,
+        cfg: EngineConfig,
+        graph: RenderGraph,
+    },
 }
 
 impl<A: Application> AppState<A> {
     fn init(&mut self, event_loop: &ActiveEventLoop) {
         match mem::replace(self, AppState::MaybeUninit) {
             AppState::Initialized(_) => panic!("Already initialized"),
-            AppState::Uninitialized { app, graph } => {
-                let handler = match AppHandler::new(app, event_loop, graph) {
+            AppState::Uninitialized { app, cfg, graph } => {
+                let handler = match AppHandler::new(app, cfg, event_loop, graph) {
                     Ok(handler) => handler,
                     Err((mut app, err)) => {
                         app.handle_error(err);
@@ -83,9 +98,9 @@ impl<A: Application> ApplicationHandler for AppState<A> {
         let old_state = mem::replace(self, AppState::MaybeUninit);
 
         if let AppState::Initialized(handler) = old_state {
-            let (app, graph) = handler.exit();
+            let (app, cfg, graph) = handler.exit();
 
-            *self = AppState::Uninitialized { app, graph };
+            *self = AppState::Uninitialized { app, cfg, graph };
         }
     }
 
@@ -113,6 +128,9 @@ impl<A: Application> ApplicationHandler for AppState<A> {
 
 struct AppHandler<A: Application> {
     app: A,
+    cfg: EngineConfig,
+    engine_commands: EngineCommandReader,
+    engine_handle: EngineHandle,
     exit_requested: Cell<bool>,
     instance: A::Instance,
     graph: RenderGraph,
@@ -121,38 +139,47 @@ struct AppHandler<A: Application> {
     renderer_handle: RendererHandle,
     simulation: thread::JoinHandle<()>,
     tick_rx: mpsc::Receiver<()>,
-    timestep: time::Duration,
 }
 
 impl<A: Application> AppHandler<A> {
     fn new(
         mut app: A,
+        cfg: EngineConfig,
         event_loop: &ActiveEventLoop,
         graph: RenderGraph,
     ) -> Result<Self, (A, core::PlatformError)> {
-        let attrs = Window::default_attributes().with_title("Engine Window");
+        let mut attrs = Window::default_attributes().with_title(cfg.window_title.clone());
+        if cfg.window_mode == WindowMode::BorderlessFullscreen {
+            attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+        }
 
         let window = match event_loop.create_window(attrs) {
             Ok(window) => window,
             Err(err) => return Err((app, err.into())),
         };
 
-        let backend = match pollster::block_on(WgpuRenderer::new(window)) {
+        let initial_size = window.inner_size();
+        let viewport = Viewport::new(initial_size.width, initial_size.height);
+
+        let backend = match pollster::block_on(WgpuRenderer::new(&cfg, window)) {
             Ok(backend) => backend,
             Err(err) => return Err((app, err)),
         };
 
         let (writer, reader) = RenderQueue::new();
-        let mut renderer_handle = RendererHandle::new(writer);
+        let mut renderer_handle = RendererHandle::new(writer, viewport);
 
         let renderer = match Renderer::new(backend, &graph, reader) {
             Ok(renderer) => renderer,
             Err(err) => return Err((app, err)),
         };
 
+        let (engine_writer, engine_commands) = EngineCommandQueue::new();
+        let tick_rate_hz = Arc::new(AtomicU32::new(cfg.tick_rate_hz));
+        let engine_handle = EngineHandle::new(engine_writer, tick_rate_hz.clone());
+
         let (tick_tx, tick_rx) = mpsc::channel();
-        let timestep = time::Duration::from_millis(16); // ~60 hz
-        let simulation = match spawn_simulation_ticker(tick_tx, timestep) {
+        let simulation = match spawn_simulation_ticker(tick_tx, tick_rate_hz) {
             Ok(simulation) => simulation,
             Err(err) => return Err((app, err)),
         };
@@ -162,9 +189,13 @@ impl<A: Application> AppHandler<A> {
         let instance = app.create(&ApplicationContext::new(
             &exit_requested,
             &mut renderer_handle,
+            &engine_handle,
         ));
         let handler = Self {
             app,
+            cfg,
+            engine_commands,
+            engine_handle,
             exit_requested,
             instance,
             graph,
@@ -173,15 +204,15 @@ impl<A: Application> AppHandler<A> {
             renderer_handle,
             simulation,
             tick_rx,
-            timestep,
         };
 
         Ok(handler)
     }
 
-    fn exit(self) -> (A, RenderGraph) {
+    fn exit(self) -> (A, EngineConfig, RenderGraph) {
         let AppHandler {
             app,
+            cfg,
             mut instance,
             graph,
             mut renderer,
@@ -196,16 +227,29 @@ impl<A: Application> AppHandler<A> {
         drop(tick_rx);
         let _ = simulation.join();
 
-        (app, graph)
+        (app, cfg, graph)
     }
 
     fn redraw(&mut self) {
+        for cmd in self.engine_commands.drain() {
+            match cmd {
+                EngineCommand::SetPresentMode(mode) => self.renderer.set_present_mode(mode),
+                EngineCommand::SetWindowMode(mode) => self
+                    .renderer
+                    .set_fullscreen(mode == WindowMode::BorderlessFullscreen),
+            }
+        }
+
         while self.tick_rx.try_recv().is_ok() {
             let now = time::Instant::now();
             let dt = now - self.last_tick;
             self.last_tick = now;
 
-            let ctx = ApplicationContext::new(&self.exit_requested, &mut self.renderer_handle);
+            let ctx = ApplicationContext::new(
+                &self.exit_requested,
+                &mut self.renderer_handle,
+                &self.engine_handle,
+            );
             self.instance.update(&ctx, dt);
         }
 
@@ -221,8 +265,14 @@ impl<A: Application> AppHandler<A> {
         let height = size.height.max(1);
 
         self.renderer.resize(width, height);
+        self.renderer_handle
+            .set_viewport(Viewport::new(width, height));
 
-        let ctx = ApplicationContext::new(&self.exit_requested, &mut self.renderer_handle);
+        let ctx = ApplicationContext::new(
+            &self.exit_requested,
+            &mut self.renderer_handle,
+            &self.engine_handle,
+        );
         self.instance
             .handle_event(&ctx, Event::Resized(width, height));
     }
@@ -230,7 +280,7 @@ impl<A: Application> AppHandler<A> {
 
 fn spawn_simulation_ticker(
     tx: mpsc::Sender<()>,
-    timestep: time::Duration,
+    tick_rate_hz: Arc<AtomicU32>,
 ) -> Result<thread::JoinHandle<()>, PlatformError> {
     let handle = thread::Builder::new()
         .name("hephaestus-ticker".to_owned())
@@ -238,6 +288,9 @@ fn spawn_simulation_ticker(
             let mut last = time::Instant::now();
 
             loop {
+                let hz = tick_rate_hz.load(Ordering::Relaxed).max(1);
+                let timestep = time::Duration::from_secs_f64(1.0 / hz as f64);
+
                 let now = time::Instant::now();
                 if now - last >= timestep {
                     last = now;
@@ -265,6 +318,11 @@ impl core::HasWindowInfo for Window {
 
     fn request_redraw(&self) {
         self.request_redraw()
+    }
+
+    fn set_fullscreen_enabled(&self, enabled: bool) {
+        let fullscreen = enabled.then_some(winit::window::Fullscreen::Borderless(None));
+        self.set_fullscreen(fullscreen);
     }
 }
 
