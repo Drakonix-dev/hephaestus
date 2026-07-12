@@ -3,7 +3,9 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use crate::{config::WindowMode, renderer::PresentMode};
 
 pub(crate) enum EngineCommand {
+    RequestExit,
     SetPresentMode(PresentMode),
+    SetTickRate(u32),
     SetWindowMode(WindowMode),
 }
 

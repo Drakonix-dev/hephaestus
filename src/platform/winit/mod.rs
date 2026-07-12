@@ -1,5 +1,4 @@
 use std::{
-    cell::Cell,
     mem::{self},
     sync::{
         Arc,
@@ -18,9 +17,9 @@ use winit::{
 
 use super::core;
 use crate::{
-    Application, ApplicationContext, ApplicationInstance, EngineError, EngineHandle,
-    commands::{EngineCommand, EngineCommandQueue, EngineCommandReader},
-    config::{EngineConfig, WindowMode},
+    Application, ApplicationContext, ApplicationInstance, EngineError,
+    commands::{EngineCommand, EngineCommandQueue, EngineCommandReader, EngineCommandWriter},
+    config::{EngineConfig, RuntimeConfig, WindowMode},
     diagnostics::diag,
     events::Event,
     platform::core::PlatformError,
@@ -85,7 +84,7 @@ impl<A: Application> AppState<A> {
 impl<A: Application> ApplicationHandler for AppState<A> {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let AppState::Initialized(handler) = self
-            && handler.exit_requested.get()
+            && handler.exit_requested
         {
             event_loop.exit();
         }
@@ -128,14 +127,16 @@ struct AppHandler<A: Application> {
     app: A,
     cfg: EngineConfig,
     engine_commands: EngineCommandReader,
-    engine_handle: EngineHandle,
-    exit_requested: Cell<bool>,
+    engine_writer: EngineCommandWriter,
+    exit_requested: bool,
     instance: A::Instance,
     graph: RenderGraph,
     last_tick: time::Instant,
     renderer: Renderer<WgpuRenderer<Window>>,
     renderer_handle: RendererHandle,
+    runtime_config: RuntimeConfig,
     simulation: thread::JoinHandle<()>,
+    tick_rate_hz: Arc<AtomicU32>,
     tick_rx: mpsc::Receiver<()>,
 }
 
@@ -174,33 +175,34 @@ impl<A: Application> AppHandler<A> {
 
         let (engine_writer, engine_commands) = EngineCommandQueue::new();
         let tick_rate_hz = Arc::new(AtomicU32::new(cfg.tick_rate_hz));
-        let engine_handle = EngineHandle::new(engine_writer, tick_rate_hz.clone());
 
         let (tick_tx, tick_rx) = mpsc::channel();
-        let simulation = match spawn_simulation_ticker(tick_tx, tick_rate_hz) {
+        let simulation = match spawn_simulation_ticker(tick_tx, tick_rate_hz.clone()) {
             Ok(simulation) => simulation,
             Err(err) => return Err((app, err.into())),
         };
 
-        let exit_requested = Cell::new(false);
+        let runtime_config = RuntimeConfig::from_config(&cfg);
 
         let instance = app.create(&ApplicationContext::new(
-            &exit_requested,
+            &engine_writer,
+            &runtime_config,
             &mut renderer_handle,
-            &engine_handle,
         ));
         let handler = Self {
             app,
             cfg,
             engine_commands,
-            engine_handle,
-            exit_requested,
+            engine_writer,
+            exit_requested: false,
             instance,
             graph,
             last_tick: time::Instant::now(),
             renderer,
             renderer_handle,
+            runtime_config,
             simulation,
+            tick_rate_hz,
             tick_rx,
         };
 
@@ -233,10 +235,21 @@ impl<A: Application> AppHandler<A> {
 
         for cmd in self.engine_commands.drain() {
             match cmd {
-                EngineCommand::SetPresentMode(mode) => self.renderer.set_present_mode(mode),
-                EngineCommand::SetWindowMode(mode) => self
-                    .renderer
-                    .set_fullscreen(mode == WindowMode::BorderlessFullscreen),
+                EngineCommand::RequestExit => self.exit_requested = true,
+                EngineCommand::SetPresentMode(mode) => {
+                    self.renderer.set_present_mode(mode);
+                    self.runtime_config.present_mode = mode;
+                }
+                EngineCommand::SetTickRate(hz) => {
+                    let hz = hz.max(1);
+                    self.tick_rate_hz.store(hz, Ordering::Relaxed);
+                    self.runtime_config.tick_rate_hz = hz;
+                }
+                EngineCommand::SetWindowMode(mode) => {
+                    self.renderer
+                        .set_fullscreen(mode == WindowMode::BorderlessFullscreen);
+                    self.runtime_config.window_mode = mode;
+                }
             }
         }
 
@@ -253,9 +266,9 @@ impl<A: Application> AppHandler<A> {
             .entered();
 
             let ctx = ApplicationContext::new(
-                &self.exit_requested,
+                &self.engine_writer,
+                &self.runtime_config,
                 &mut self.renderer_handle,
-                &self.engine_handle,
             );
             self.instance.update(&ctx, dt);
         }
@@ -277,9 +290,9 @@ impl<A: Application> AppHandler<A> {
             .set_viewport(Viewport::new(width, height));
 
         let ctx = ApplicationContext::new(
-            &self.exit_requested,
+            &self.engine_writer,
+            &self.runtime_config,
             &mut self.renderer_handle,
-            &self.engine_handle,
         );
         self.instance
             .handle_event(&ctx, Event::Resized(width, height));

@@ -22,6 +22,23 @@ impl Default for EngineConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeConfig {
+    pub present_mode: PresentMode,
+    pub tick_rate_hz: u32,
+    pub window_mode: WindowMode,
+}
+
+impl RuntimeConfig {
+    pub(crate) fn from_config(cfg: &EngineConfig) -> Self {
+        Self {
+            present_mode: cfg.present_mode,
+            tick_rate_hz: cfg.tick_rate_hz,
+            window_mode: cfg.window_mode,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMode {
     Windowed,
