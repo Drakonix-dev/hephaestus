@@ -3,12 +3,13 @@ use std::sync::Arc;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{
+    config::EngineConfig,
     math::Mat4,
     platform::core::{FrameError, HasWindowInfo, PlatformError},
     renderer::{
         self, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition,
-        MeshHandle, RenderDomain, RenderPhase, RendererBackend, ShaderDefinition, ShaderHandle,
-        TextureDefinition, TextureHandle,
+        MeshHandle, PresentMode, RenderDomain, RenderPhase, RendererBackend, ShaderDefinition,
+        ShaderHandle, TextureDefinition, TextureHandle,
         backend::wgpu::{
             globals::{FrameGlobals, ModelUniformPool},
             material::MaterialManager,
@@ -39,6 +40,26 @@ fn create_depth_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
+fn resolve_present_mode(
+    desired: PresentMode,
+    caps: &wgpu::SurfaceCapabilities,
+) -> wgpu::PresentMode {
+    let wanted = match desired {
+        PresentMode::Vsync => wgpu::PresentMode::Fifo,
+        PresentMode::Immediate => wgpu::PresentMode::Immediate,
+        PresentMode::Mailbox => wgpu::PresentMode::Mailbox,
+    };
+
+    if caps.present_modes.contains(&wanted) {
+        wanted
+    } else {
+        caps.present_modes
+            .first()
+            .copied()
+            .unwrap_or(wgpu::PresentMode::Fifo)
+    }
+}
+
 pub(crate) trait Window:
     HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
 {
@@ -49,6 +70,7 @@ pub struct Renderer<W: Window> {
     adapter: wgpu::Adapter,
     config: Option<wgpu::SurfaceConfiguration>,
     depth_view: Option<wgpu::TextureView>,
+    desired_present_mode: PresentMode,
     device: wgpu::Device,
     globals: FrameGlobals,
     materials: MaterialManager,
@@ -64,7 +86,7 @@ pub struct Renderer<W: Window> {
 }
 
 impl<W: Window> Renderer<W> {
-    pub(crate) async fn new(window: W) -> Result<Self, PlatformError> {
+    pub(crate) async fn new(cfg: &EngineConfig, window: W) -> Result<Self, PlatformError> {
         let window = Arc::new(window);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -100,6 +122,7 @@ impl<W: Window> Renderer<W> {
             adapter,
             config: None,
             depth_view: None,
+            desired_present_mode: cfg.present_mode,
             device,
             globals,
             materials: MaterialManager::new(),
@@ -125,11 +148,7 @@ impl<W: Window> Renderer<W> {
             .find(|f| f.is_srgb())
             .copied()
             .unwrap_or(caps.formats[0]);
-        let present_mode = caps
-            .present_modes
-            .first()
-            .copied()
-            .unwrap_or(wgpu::PresentMode::Fifo);
+        let present_mode = resolve_present_mode(self.desired_present_mode, &caps);
         let alpha_mode = caps
             .alpha_modes
             .first()
@@ -284,6 +303,18 @@ impl<W: Window> RendererBackend for Renderer<W> {
 
     fn set_camera(&mut self, view_proj: Mat4) {
         self.globals.write(&self.queue, view_proj);
+    }
+
+    fn set_fullscreen(&mut self, enabled: bool) {
+        self.window.set_fullscreen_enabled(enabled);
+    }
+
+    fn set_present_mode(&mut self, mode: PresentMode) {
+        self.desired_present_mode = mode;
+
+        if self.config.is_some() {
+            self.configure_surface();
+        }
     }
 
     fn shutdown(&mut self) {

@@ -42,6 +42,8 @@ pub(crate) trait RendererBackend {
     fn reserve_draw_capacity(&mut self, count: u64);
     fn resize(&mut self, width: u32, height: u32);
     fn set_camera(&mut self, view_proj: Mat4);
+    fn set_fullscreen(&mut self, enabled: bool);
+    fn set_present_mode(&mut self, mode: PresentMode);
     fn shutdown(&mut self);
 }
 
@@ -109,6 +111,14 @@ impl<B: RendererBackend> Renderer<B> {
 
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
         self.backend.resize(width, height)
+    }
+
+    pub(crate) fn set_fullscreen(&mut self, enabled: bool) {
+        self.backend.set_fullscreen(enabled)
+    }
+
+    pub(crate) fn set_present_mode(&mut self, mode: PresentMode) {
+        self.backend.set_present_mode(mode)
     }
 
     pub(crate) fn shutdown(&mut self) {

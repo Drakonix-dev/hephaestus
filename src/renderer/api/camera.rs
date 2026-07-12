@@ -1,4 +1,7 @@
-use crate::math::{Mat4, view};
+use crate::{
+    math::{Mat4, view},
+    renderer::Viewport,
+};
 
 pub struct Camera;
 
@@ -8,12 +11,14 @@ pub enum Projection {
 }
 
 impl Projection {
-    pub fn project(&self, aspect_ratio: f32) -> Mat4 {
+    pub fn project(&self, viewport: Viewport) -> Mat4 {
         match self {
-            Projection::Perspective(p) => view::perspective(p.fovy, aspect_ratio, p.near, p.far),
+            Projection::Perspective(p) => {
+                view::perspective(p.fovy, viewport.aspect_ratio(), p.near, p.far)
+            }
             Projection::Orthographic(o) => {
                 let half_height = o.height / 2.0;
-                let half_width = half_height * aspect_ratio;
+                let half_width = half_height * viewport.aspect_ratio();
                 view::orthographic(
                     -half_width,
                     half_width,

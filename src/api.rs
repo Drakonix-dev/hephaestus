@@ -1,9 +1,18 @@
 use core::time;
-use std::{cell::Cell, error::Error};
+use std::{
+    cell::Cell,
+    error::Error,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
+};
 
 use crate::{
+    commands::{EngineCommand, EngineCommandWriter},
+    config::WindowMode,
     events::Event,
-    renderer::{DrawCommand, RenderPhase, RendererHandle},
+    renderer::{DrawCommand, PresentMode, RenderPhase, RendererHandle},
 };
 
 pub trait Application {
@@ -26,19 +35,55 @@ pub trait ApplicationInstance {
 
 pub struct ApplicationContext<'a> {
     exit_requested: &'a Cell<bool>,
+    pub engine: &'a EngineHandle,
     pub renderer: &'a mut RendererHandle,
 }
 
 impl<'a> ApplicationContext<'a> {
-    pub(crate) fn new(exit_requested: &'a Cell<bool>, renderer: &'a mut RendererHandle) -> Self {
+    pub(crate) fn new(
+        exit_requested: &'a Cell<bool>,
+        renderer: &'a mut RendererHandle,
+        engine: &'a EngineHandle,
+    ) -> Self {
         Self {
             exit_requested,
+            engine,
             renderer,
         }
     }
 
     pub fn request_exit(&self) {
         self.exit_requested.set(true);
+    }
+}
+
+pub struct EngineHandle {
+    commands: EngineCommandWriter,
+    tick_rate_hz: Arc<AtomicU32>,
+}
+
+impl EngineHandle {
+    pub(crate) fn new(commands: EngineCommandWriter, tick_rate_hz: Arc<AtomicU32>) -> Self {
+        Self {
+            commands,
+            tick_rate_hz,
+        }
+    }
+
+    pub fn set_present_mode(&self, mode: PresentMode) {
+        self.commands.push(EngineCommand::SetPresentMode(mode));
+    }
+
+    pub fn set_tick_rate(&self, hz: u32) {
+        self.tick_rate_hz.store(hz.max(1), Ordering::Relaxed);
+    }
+
+    pub fn set_window_mode(&self, mode: WindowMode) {
+        self.commands.push(EngineCommand::SetWindowMode(mode));
+    }
+
+    pub fn tick_rate(&self) -> u32 {
+        self.tick_rate_hz.load(Ordering::Relaxed)
     }
 }
 

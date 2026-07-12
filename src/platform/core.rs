@@ -5,6 +5,7 @@ use crate::EngineError;
 pub(crate) trait HasWindowInfo {
     fn get_window_info(&self) -> WindowInfo;
     fn request_redraw(&self);
+    fn set_fullscreen_enabled(&self, enabled: bool);
 }
 
 #[derive(Debug, Clone, Copy)]
