@@ -1,7 +1,6 @@
 use core::time;
 use std::{
     cell::Cell,
-    error::Error,
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
@@ -12,7 +11,8 @@ use crate::{
     commands::{EngineCommand, EngineCommandWriter},
     config::WindowMode,
     events::Event,
-    renderer::{DrawCommand, PresentMode, RenderPhase, RendererHandle},
+    platform::core::PlatformError,
+    renderer::{DrawCommand, PresentMode, RenderError, RenderPhase, RendererHandle},
 };
 
 pub trait Application {
@@ -87,14 +87,12 @@ impl EngineHandle {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EngineError {
-    Fatal {
-        message: String,
-        source: Option<Box<dyn Error + Send + Sync>>,
-    },
-    Recoverable {
-        message: String,
-        source: Option<Box<dyn Error + Send + Sync>>,
-    },
+    #[error(transparent)]
+    Platform(#[from] PlatformError),
+
+    #[error(transparent)]
+    Render(#[from] RenderError),
 }

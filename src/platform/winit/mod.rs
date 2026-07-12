@@ -18,7 +18,7 @@ use winit::{
 
 use super::core;
 use crate::{
-    Application, ApplicationContext, ApplicationInstance, EngineHandle,
+    Application, ApplicationContext, ApplicationInstance, EngineError, EngineHandle,
     commands::{EngineCommand, EngineCommandQueue, EngineCommandReader},
     config::{EngineConfig, WindowMode},
     diagnostics::diag,
@@ -145,7 +145,7 @@ impl<A: Application> AppHandler<A> {
         cfg: EngineConfig,
         event_loop: &ActiveEventLoop,
         graph: RenderGraph,
-    ) -> Result<Self, (A, core::PlatformError)> {
+    ) -> Result<Self, (A, EngineError)> {
         let mut attrs = Window::default_attributes().with_title(cfg.window_title.clone());
         if cfg.window_mode == WindowMode::BorderlessFullscreen {
             attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
@@ -153,7 +153,7 @@ impl<A: Application> AppHandler<A> {
 
         let window = match event_loop.create_window(attrs) {
             Ok(window) => window,
-            Err(err) => return Err((app, err.into())),
+            Err(err) => return Err((app, PlatformError::from(err).into())),
         };
 
         let initial_size = window.inner_size();
@@ -161,7 +161,7 @@ impl<A: Application> AppHandler<A> {
 
         let backend = match pollster::block_on(WgpuRenderer::new(&cfg, window)) {
             Ok(backend) => backend,
-            Err(err) => return Err((app, err)),
+            Err(err) => return Err((app, err.into())),
         };
 
         let (writer, reader) = RenderQueue::new();
@@ -169,7 +169,7 @@ impl<A: Application> AppHandler<A> {
 
         let renderer = match Renderer::new(backend, &graph, reader) {
             Ok(renderer) => renderer,
-            Err(err) => return Err((app, err)),
+            Err(err) => return Err((app, err.into())),
         };
 
         let (engine_writer, engine_commands) = EngineCommandQueue::new();
@@ -179,7 +179,7 @@ impl<A: Application> AppHandler<A> {
         let (tick_tx, tick_rx) = mpsc::channel();
         let simulation = match spawn_simulation_ticker(tick_tx, tick_rate_hz) {
             Ok(simulation) => simulation,
-            Err(err) => return Err((app, err)),
+            Err(err) => return Err((app, err.into())),
         };
 
         let exit_requested = Cell::new(false);
@@ -339,12 +339,16 @@ impl core::HasWindowInfo for Window {
 
 impl From<winit::error::EventLoopError> for PlatformError {
     fn from(err: winit::error::EventLoopError) -> Self {
-        Self::LoopError(err.to_string())
+        Self::EventLoop {
+            source: Box::new(err),
+        }
     }
 }
 
 impl From<winit::error::OsError> for PlatformError {
     fn from(err: winit::error::OsError) -> Self {
-        Self::WindowCreationFailed(err.to_string())
+        Self::WindowCreation {
+            source: Box::new(err),
+        }
     }
 }

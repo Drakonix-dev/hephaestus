@@ -1,8 +1,7 @@
 use std::{collections::HashMap, fs};
 
-use crate::{
-    platform::core::PlatformError,
-    renderer::{BindGroupLayout, BindingType, ShaderDefinition, ShaderHandle, ShaderStage},
+use crate::renderer::{
+    BindGroupLayout, BindingType, RenderError, ShaderDefinition, ShaderHandle, ShaderStage,
 };
 
 pub(crate) struct ShaderManager {
@@ -27,14 +26,16 @@ impl ShaderManager {
         device: &wgpu::Device,
         handle: ShaderHandle,
         def: &ShaderDefinition,
-    ) -> Result<(), PlatformError> {
-        let source = fs::read_to_string(def.source.as_path())?;
+    ) -> Result<(), RenderError> {
+        let source =
+            fs::read_to_string(def.source.as_path()).map_err(|err| RenderError::AssetLoad {
+                path: def.source.clone(),
+                source: Box::new(err),
+            })?;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(
-                def.source
-                    .to_str()
-                    .ok_or(PlatformError::AssetLoadFailed(def.source.clone()))?,
-            ),
+            label: Some(def.source.to_str().ok_or_else(|| RenderError::BadAsset {
+                detail: format!("shader path is not valid UTF-8: {}", def.source.display()),
+            })?),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
 

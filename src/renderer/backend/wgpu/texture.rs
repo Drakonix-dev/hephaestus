@@ -2,10 +2,7 @@ use std::collections::HashMap;
 
 use image::ImageReader;
 
-use crate::{
-    platform::core::PlatformError,
-    renderer::{TextureDefinition, TextureDimension, TextureHandle},
-};
+use crate::renderer::{RenderError, TextureDefinition, TextureDimension, TextureHandle};
 
 pub(crate) struct TextureManager {
     textures: HashMap<TextureHandle, TextureInstance>,
@@ -28,12 +25,16 @@ impl TextureManager {
         queue: &wgpu::Queue,
         handle: TextureHandle,
         def: &TextureDefinition,
-    ) -> Result<(), PlatformError> {
-        let image = ImageReader::open(def.source.as_path())?
+    ) -> Result<(), RenderError> {
+        let image = ImageReader::open(def.source.as_path())
+            .map_err(|err| RenderError::AssetLoad {
+                path: def.source.clone(),
+                source: Box::new(err),
+            })?
             .decode()
-            .map_err(|err| match err {
-                image::ImageError::IoError(io) => PlatformError::IoError(io),
-                _ => PlatformError::AssetLoadFailed(def.source.clone()),
+            .map_err(|err| RenderError::AssetLoad {
+                path: def.source.clone(),
+                source: Box::new(err),
             })?;
 
         let rgba = image.to_rgba8();
@@ -46,10 +47,9 @@ impl TextureManager {
             TextureDimension::D2 => (wgpu::TextureDimension::D2, 1),
             TextureDimension::D3 => (
                 wgpu::TextureDimension::D3,
-                def.depth
-                    .ok_or(PlatformError::BadAssetDefinition(String::from(
-                        "No depth for D3 texture",
-                    )))?,
+                def.depth.ok_or_else(|| RenderError::BadAsset {
+                    detail: String::from("No depth for D3 texture"),
+                })?,
             ),
         };
 
