@@ -326,6 +326,7 @@ impl<W: Window> RendererBackend for Renderer<W> {
 }
 
 pub(crate) struct RenderFrame<'a, W: Window> {
+    first_depth_pass: bool,
     first_pass: bool,
     frame: wgpu::SurfaceTexture,
     model_cursor: u64,
@@ -340,6 +341,7 @@ impl<'a, W: Window> RenderFrame<'a, W> {
         view: wgpu::TextureView,
     ) -> Self {
         Self {
+            first_depth_pass: true,
             first_pass: true,
             frame,
             model_cursor: 0,
@@ -371,31 +373,36 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
             wgpu::LoadOp::Load
         };
 
-        let depth_load_op = if is_first_pass {
-            wgpu::LoadOp::Clear(1.0)
+        let depth_enabled = matches!(
+            phase.domain,
+            RenderDomain::Other(_) | RenderDomain::World3D
+        );
+
+        let depth_stencil_attachment = if depth_enabled {
+            let is_first_depth_pass = self.first_depth_pass;
+            self.first_depth_pass = false;
+
+            let depth_load_op = if is_first_depth_pass {
+                wgpu::LoadOp::Clear(1.0)
+            } else {
+                wgpu::LoadOp::Load
+            };
+
+            Some(wgpu::RenderPassDepthStencilAttachment {
+                view: self
+                    .renderer
+                    .depth_view
+                    .as_ref()
+                    .expect("depth view should be configured before the first frame"),
+                depth_ops: Some(wgpu::Operations {
+                    load: depth_load_op,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            })
         } else {
-            wgpu::LoadOp::Load
+            None
         };
-
-        let attachment = wgpu::RenderPassDepthStencilAttachment {
-            view: self
-                .renderer
-                .depth_view
-                .as_ref()
-                .expect("depth view should be configured before the first frame"),
-            depth_ops: Some(wgpu::Operations {
-                load: depth_load_op,
-                store: wgpu::StoreOp::Store,
-            }),
-            stencil_ops: None,
-        };
-
-        let depth_stencil_attachment = match phase.domain {
-            RenderDomain::Other(_) => Some(attachment),
-            RenderDomain::World3D => Some(attachment),
-            _ => None,
-        };
-        let depth_enabled = depth_stencil_attachment.is_some();
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
