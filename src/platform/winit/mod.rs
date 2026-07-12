@@ -21,6 +21,7 @@ use crate::{
     Application, ApplicationContext, ApplicationInstance, EngineHandle,
     commands::{EngineCommand, EngineCommandQueue, EngineCommandReader},
     config::{EngineConfig, WindowMode},
+    diagnostics::diag,
     events::Event,
     platform::core::PlatformError,
     renderer::{
@@ -37,7 +38,7 @@ impl WinitPlatform {
         cfg: EngineConfig,
         graph: RenderGraph,
     ) -> Result<(), PlatformError> {
-        env_logger::init();
+        let _diagnostics = crate::diagnostics::init(&cfg.diagnostics);
 
         let event_loop = EventLoop::new()?;
         event_loop.set_control_flow(ControlFlow::Poll);
@@ -228,6 +229,8 @@ impl<A: Application> AppHandler<A> {
     }
 
     fn redraw(&mut self) {
+        let _frame = tracing::info_span!(target: diag::FRAME, "frame").entered();
+
         for cmd in self.engine_commands.drain() {
             match cmd {
                 EngineCommand::SetPresentMode(mode) => self.renderer.set_present_mode(mode),
@@ -242,6 +245,13 @@ impl<A: Application> AppHandler<A> {
             let dt = now - self.last_tick;
             self.last_tick = now;
 
+            let _tick = tracing::debug_span!(
+                target: diag::SIM,
+                "update",
+                dt_us = dt.as_micros() as u64,
+            )
+            .entered();
+
             let ctx = ApplicationContext::new(
                 &self.exit_requested,
                 &mut self.renderer_handle,
@@ -253,6 +263,7 @@ impl<A: Application> AppHandler<A> {
         let res = self.renderer.render(|phase| self.instance.render(phase));
 
         if let Err(err) = res {
+            tracing::error!(target: diag::FRAME, error = ?err, "frame render failed");
             self.instance.handle_error(err);
         }
     }
@@ -283,6 +294,7 @@ fn spawn_simulation_ticker(
         .name("hephaestus-ticker".to_owned())
         .spawn(move || {
             let mut last = time::Instant::now();
+            let mut tick: u64 = 0;
 
             loop {
                 let hz = tick_rate_hz.load(Ordering::Relaxed).max(1);
@@ -293,9 +305,11 @@ fn spawn_simulation_ticker(
                     last = now;
 
                     if tx.send(()).is_err() {
-                        // main thread dropped receiver -> exit
                         break;
                     }
+
+                    tracing::trace!(target: diag::SIM, tick, "tick");
+                    tick += 1;
                 }
 
                 thread::sleep(time::Duration::from_millis(1));

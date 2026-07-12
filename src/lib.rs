@@ -5,6 +5,7 @@ pub(crate) mod macros;
 
 pub mod commands;
 pub mod config;
+pub mod diagnostics;
 pub mod events;
 pub mod math;
 pub mod renderer;

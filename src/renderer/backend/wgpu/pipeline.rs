@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::renderer::{ShaderHandle, Vertex, backend::wgpu::shader::ShaderInstance};
+use crate::{
+    diagnostics::diag,
+    renderer::{ShaderHandle, Vertex, backend::wgpu::shader::ShaderInstance},
+};
 
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -102,6 +105,12 @@ impl PipelineManager {
         let key = (shader.handle, render_state);
 
         if !self.pipelines.contains_key(&key) {
+            tracing::debug!(
+                target: diag::RENDER,
+                shader = ?shader.handle,
+                depth_enabled = render_state.depth_enabled,
+                "pipeline compiled",
+            );
             let pipeline = self.create_pipeline(
                 format,
                 device,

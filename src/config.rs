@@ -1,8 +1,9 @@
-use crate::renderer::PresentMode;
+use crate::{diagnostics::DiagnosticsConfig, renderer::PresentMode};
 
 const TICK_RATE_HZ: u32 = 60;
 
 pub struct EngineConfig {
+    pub diagnostics: DiagnosticsConfig,
     pub present_mode: PresentMode,
     pub tick_rate_hz: u32,
     pub window_mode: WindowMode,
@@ -12,6 +13,7 @@ pub struct EngineConfig {
 impl Default for EngineConfig {
     fn default() -> Self {
         Self {
+            diagnostics: DiagnosticsConfig::default(),
             present_mode: PresentMode::Vsync,
             tick_rate_hz: TICK_RATE_HZ,
             window_mode: WindowMode::Windowed,
