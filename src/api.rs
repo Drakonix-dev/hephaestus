@@ -1,15 +1,8 @@
 use core::time;
-use std::{
-    cell::Cell,
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-};
 
 use crate::{
     commands::{EngineCommand, EngineCommandWriter},
-    config::WindowMode,
+    config::{RuntimeConfig, WindowMode},
     events::Event,
     platform::core::PlatformError,
     renderer::{DrawCommand, PresentMode, RenderError, RenderPhase, RendererHandle},
@@ -34,40 +27,30 @@ pub trait ApplicationInstance {
 }
 
 pub struct ApplicationContext<'a> {
-    exit_requested: &'a Cell<bool>,
-    pub engine: &'a EngineHandle,
+    commands: &'a EngineCommandWriter,
+    config: &'a RuntimeConfig,
     pub renderer: &'a mut RendererHandle,
 }
 
 impl<'a> ApplicationContext<'a> {
     pub(crate) fn new(
-        exit_requested: &'a Cell<bool>,
+        commands: &'a EngineCommandWriter,
+        config: &'a RuntimeConfig,
         renderer: &'a mut RendererHandle,
-        engine: &'a EngineHandle,
     ) -> Self {
         Self {
-            exit_requested,
-            engine,
+            commands,
+            config,
             renderer,
         }
     }
 
-    pub fn request_exit(&self) {
-        self.exit_requested.set(true);
+    pub fn config(&self) -> &RuntimeConfig {
+        self.config
     }
-}
 
-pub struct EngineHandle {
-    commands: EngineCommandWriter,
-    tick_rate_hz: Arc<AtomicU32>,
-}
-
-impl EngineHandle {
-    pub(crate) fn new(commands: EngineCommandWriter, tick_rate_hz: Arc<AtomicU32>) -> Self {
-        Self {
-            commands,
-            tick_rate_hz,
-        }
+    pub fn request_exit(&self) {
+        self.commands.push(EngineCommand::RequestExit);
     }
 
     pub fn set_present_mode(&self, mode: PresentMode) {
@@ -75,15 +58,11 @@ impl EngineHandle {
     }
 
     pub fn set_tick_rate(&self, hz: u32) {
-        self.tick_rate_hz.store(hz.max(1), Ordering::Relaxed);
+        self.commands.push(EngineCommand::SetTickRate(hz));
     }
 
     pub fn set_window_mode(&self, mode: WindowMode) {
         self.commands.push(EngineCommand::SetWindowMode(mode));
-    }
-
-    pub fn tick_rate(&self) -> u32 {
-        self.tick_rate_hz.load(Ordering::Relaxed)
     }
 }
 
