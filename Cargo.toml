@@ -12,6 +12,7 @@ opentelemetry-otlp = { version = "0.32", default-features = false, features = ["
 opentelemetry_sdk = { version = "0.32", optional = true }
 pollster = "0.4.0"
 raw-window-handle = "0.6.2"
+thiserror = "2"
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "0.33", optional = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "registry", "std"] }

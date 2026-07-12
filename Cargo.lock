@@ -964,6 +964,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pollster",
  "raw-window-handle",
+ "thiserror 2.0.18",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",

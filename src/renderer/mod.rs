@@ -1,19 +1,21 @@
 mod api;
+mod error;
 
 pub(crate) mod backend;
 
 pub use api::*;
+pub use error::{FrameError, RenderError};
 
 use std::collections::HashMap;
 
-use crate::{diagnostics::diag, math::Mat4, platform::core::PlatformError};
+use crate::{diagnostics::diag, math::Mat4};
 
 pub(crate) trait RenderFrame<'a> {
     fn execute_commands(
         &mut self,
         phase: &RenderPhase,
         cmds: &[DrawCommand],
-    ) -> Result<(), PlatformError>;
+    ) -> Result<(), RenderError>;
     fn present_frame(self);
 }
 
@@ -22,23 +24,23 @@ pub(crate) trait RendererBackend {
     where
         Self: 'a;
 
-    fn begin_frame<'a>(&'a mut self) -> Result<Self::Frame<'a>, PlatformError>;
+    fn begin_frame<'a>(&'a mut self) -> Result<Self::Frame<'a>, RenderError>;
     fn create_material(
         &mut self,
         handle: MaterialHandle,
         definition: MaterialDefinition,
-    ) -> Result<(), PlatformError>;
+    ) -> Result<(), RenderError>;
     fn create_mesh(&mut self, handle: MeshHandle, definition: MeshDefinition);
     fn create_shader(
         &mut self,
         handle: ShaderHandle,
         definition: ShaderDefinition,
-    ) -> Result<(), PlatformError>;
+    ) -> Result<(), RenderError>;
     fn create_texture(
         &mut self,
         handle: TextureHandle,
         definition: TextureDefinition,
-    ) -> Result<(), PlatformError>;
+    ) -> Result<(), RenderError>;
     fn reserve_draw_capacity(&mut self, count: u64);
     fn resize(&mut self, width: u32, height: u32);
     fn set_camera(&mut self, view_proj: Mat4);
@@ -59,10 +61,12 @@ impl<B: RendererBackend> Renderer<B> {
         backend: B,
         graph: &RenderGraph,
         queue: RenderQueueReader,
-    ) -> Result<Self, PlatformError> {
+    ) -> Result<Self, RenderError> {
         let phases = graph
             .linearize()
-            .map_err(|err| PlatformError::BadRenderGraph(err.to_string()))?;
+            .map_err(|err| RenderError::BadRenderGraph {
+                detail: err.to_string(),
+            })?;
 
         Ok(Self {
             backend,
@@ -72,7 +76,7 @@ impl<B: RendererBackend> Renderer<B> {
         })
     }
 
-    pub(crate) fn render<T>(&mut self, phased_draws: T) -> Result<(), PlatformError>
+    pub(crate) fn render<T>(&mut self, phased_draws: T) -> Result<(), RenderError>
     where
         T: FnMut(&RenderPhase) -> Option<Vec<DrawCommand>>,
     {
@@ -140,7 +144,7 @@ impl<B: RendererBackend> Renderer<B> {
     fn process_staging_uploads(
         &mut self,
         staged_commands: &mut Vec<RenderCommand>,
-    ) -> Result<(), PlatformError> {
+    ) -> Result<(), RenderError> {
         if staged_commands.is_empty() {
             return Ok(());
         }
@@ -212,7 +216,7 @@ mod tests {
             &mut self,
             _phase: &RenderPhase,
             _cmds: &[DrawCommand],
-        ) -> Result<(), PlatformError> {
+        ) -> Result<(), RenderError> {
             Ok(())
         }
 
@@ -222,7 +226,7 @@ mod tests {
     impl RendererBackend for MockBackend {
         type Frame<'a> = MockFrame;
 
-        fn begin_frame(&mut self) -> Result<Self::Frame<'_>, PlatformError> {
+        fn begin_frame(&mut self) -> Result<Self::Frame<'_>, RenderError> {
             Ok(MockFrame)
         }
 
@@ -230,7 +234,7 @@ mod tests {
             &mut self,
             _handle: MaterialHandle,
             _definition: MaterialDefinition,
-        ) -> Result<(), PlatformError> {
+        ) -> Result<(), RenderError> {
             Ok(())
         }
 
@@ -240,7 +244,7 @@ mod tests {
             &mut self,
             _handle: ShaderHandle,
             _definition: ShaderDefinition,
-        ) -> Result<(), PlatformError> {
+        ) -> Result<(), RenderError> {
             Ok(())
         }
 
@@ -248,7 +252,7 @@ mod tests {
             &mut self,
             _handle: TextureHandle,
             _definition: TextureDefinition,
-        ) -> Result<(), PlatformError> {
+        ) -> Result<(), RenderError> {
             Ok(())
         }
 

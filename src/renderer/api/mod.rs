@@ -18,7 +18,7 @@ pub use texture::*;
 
 use std::collections::HashMap;
 
-use crate::{math::Mat4, platform::core::PlatformError};
+use crate::{math::Mat4, renderer::RenderError};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Viewport {
@@ -77,10 +77,12 @@ impl RendererHandle {
         handle
     }
 
-    pub fn builtin_shader(&self, shader: BuiltinShader) -> Result<&ShaderHandle, PlatformError> {
+    pub fn builtin_shader(&self, shader: BuiltinShader) -> Result<&ShaderHandle, RenderError> {
         self.builtin_shaders
             .get(&shader)
-            .ok_or(PlatformError::AssetNotFound(shader.to_string()))
+            .ok_or_else(|| RenderError::AssetNotFound {
+                name: shader.to_string(),
+            })
     }
 
     pub fn create_material(&self, definition: MaterialDefinition) -> MaterialHandle {

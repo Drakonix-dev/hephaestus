@@ -11,6 +11,7 @@ pub mod math;
 pub mod renderer;
 
 pub use api::*;
+pub use platform::core::PlatformError;
 
 use crate::{config::EngineConfig, renderer::RenderGraph};
 

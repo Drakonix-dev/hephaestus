@@ -2,12 +2,9 @@ use std::collections::HashMap;
 
 use wgpu::util::DeviceExt;
 
-use crate::{
-    platform::core::PlatformError,
-    renderer::{
-        MaterialDefinition, MaterialHandle, ShaderHandle,
-        backend::wgpu::{shader::ShaderManager, texture::TextureManager},
-    },
+use crate::renderer::{
+    MaterialDefinition, MaterialHandle, RenderError, ShaderHandle,
+    backend::wgpu::{shader::ShaderManager, texture::TextureManager},
 };
 
 pub(crate) struct MaterialManager {
@@ -33,10 +30,12 @@ impl MaterialManager {
         textures: &TextureManager,
         handle: MaterialHandle,
         def: &MaterialDefinition,
-    ) -> Result<(), PlatformError> {
+    ) -> Result<(), RenderError> {
         let shader = shaders
             .get_shader(&def.shader)
-            .ok_or(PlatformError::AssetNotFound(def.shader.to_string()))?;
+            .ok_or_else(|| RenderError::AssetNotFound {
+                name: def.shader.to_string(),
+            })?;
 
         let texture_views: Vec<&wgpu::TextureView> = def
             .params
@@ -45,10 +44,12 @@ impl MaterialManager {
             .map(|h| {
                 let tex = textures
                     .get_texture(h)
-                    .ok_or(PlatformError::AssetNotFound(h.to_string()))?;
+                    .ok_or_else(|| RenderError::AssetNotFound {
+                        name: h.to_string(),
+                    })?;
                 Ok(&tex.view)
             })
-            .collect::<Result<_, PlatformError>>()?;
+            .collect::<Result<_, RenderError>>()?;
 
         let uniform_data = bytemuck::bytes_of(&def.params.uniforms);
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

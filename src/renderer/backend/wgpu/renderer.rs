@@ -6,11 +6,11 @@ use crate::{
     config::EngineConfig,
     diagnostics::diag,
     math::Mat4,
-    platform::core::{FrameError, HasWindowInfo, PlatformError},
+    platform::core::HasWindowInfo,
     renderer::{
-        self, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition,
-        MeshHandle, PresentMode, RenderDomain, RenderPhase, RendererBackend, ShaderDefinition,
-        ShaderHandle, TextureDefinition, TextureHandle,
+        self, DrawCommand, DrawMesh, FrameError, MaterialDefinition, MaterialHandle,
+        MeshDefinition, MeshHandle, PresentMode, RenderDomain, RenderError, RenderPhase,
+        RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle,
         backend::wgpu::{
             globals::{FrameGlobals, ModelUniformPool},
             material::MaterialManager,
@@ -87,7 +87,7 @@ pub struct Renderer<W: Window> {
 }
 
 impl<W: Window> Renderer<W> {
-    pub(crate) async fn new(cfg: &EngineConfig, window: W) -> Result<Self, PlatformError> {
+    pub(crate) async fn new(cfg: &EngineConfig, window: W) -> Result<Self, RenderError> {
         let window = Arc::new(window);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -187,7 +187,7 @@ impl<W: Window> Renderer<W> {
         draw: &DrawMesh,
         model_offset: u32,
         depth_enabled: bool,
-    ) -> Result<(), PlatformError> {
+    ) -> Result<(), RenderError> {
         #[cfg(feature = "detailed-spans")]
         let _span =
             tracing::trace_span!(target: diag::DRAW, "draw_mesh", mesh = ?draw.mesh).entered();
@@ -195,30 +195,25 @@ impl<W: Window> Renderer<W> {
         let mesh = self
             .meshes
             .get_mesh(&draw.mesh)
-            .ok_or(PlatformError::AssetNotFound(format!(
-                "{:?} not found",
-                draw.mesh
-            )))?;
+            .ok_or_else(|| RenderError::AssetNotFound {
+                name: format!("{:?}", draw.mesh),
+            })?;
 
-        let material =
-            self.materials
-                .get_material(&draw.material)
-                .ok_or(PlatformError::AssetNotFound(format!(
-                    "{:?} not found",
-                    draw.material
-                )))?;
+        let material = self.materials.get_material(&draw.material).ok_or_else(|| {
+            RenderError::AssetNotFound {
+                name: format!("{:?}", draw.material),
+            }
+        })?;
 
-        let shader =
-            self.shaders
-                .get_shader(&material.shader)
-                .ok_or(PlatformError::AssetNotFound(format!(
-                    "{:?} not found",
-                    material.shader
-                )))?;
+        let shader = self.shaders.get_shader(&material.shader).ok_or_else(|| {
+            RenderError::AssetNotFound {
+                name: format!("{:?}", material.shader),
+            }
+        })?;
 
         let pipeline = self.pipelines.get_or_create_pipeline(
             self.surface_format
-                .ok_or(PlatformError::Frame(FrameError::Other(String::from(
+                .ok_or(RenderError::Frame(FrameError::Other(String::from(
                     "surface format not found",
                 ))))?,
             &self.device,
@@ -246,7 +241,7 @@ impl<W: Window> Renderer<W> {
 impl<W: Window> RendererBackend for Renderer<W> {
     type Frame<'a> = RenderFrame<'a, W>;
 
-    fn begin_frame<'a>(&'a mut self) -> Result<Self::Frame<'a>, PlatformError> {
+    fn begin_frame<'a>(&'a mut self) -> Result<Self::Frame<'a>, RenderError> {
         if self.config.is_none() {
             self.configure_surface();
         }
@@ -265,7 +260,7 @@ impl<W: Window> RendererBackend for Renderer<W> {
         &mut self,
         handle: MaterialHandle,
         definition: MaterialDefinition,
-    ) -> Result<(), PlatformError> {
+    ) -> Result<(), RenderError> {
         self.materials.create_material(
             &self.device,
             &self.shaders,
@@ -283,7 +278,7 @@ impl<W: Window> RendererBackend for Renderer<W> {
         &mut self,
         handle: ShaderHandle,
         definition: ShaderDefinition,
-    ) -> Result<(), PlatformError> {
+    ) -> Result<(), RenderError> {
         self.shaders
             .create_shader(&self.device, handle, &definition)
     }
@@ -292,7 +287,7 @@ impl<W: Window> RendererBackend for Renderer<W> {
         &mut self,
         handle: TextureHandle,
         definition: TextureDefinition,
-    ) -> Result<(), PlatformError> {
+    ) -> Result<(), RenderError> {
         self.textures
             .create_texture(&self.device, &self.queue, handle, &definition)
     }
@@ -369,7 +364,7 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
         &mut self,
         phase: &RenderPhase,
         cmds: &[DrawCommand],
-    ) -> Result<(), PlatformError> {
+    ) -> Result<(), RenderError> {
         let _span = tracing::debug_span!(
             target: diag::RENDER,
             "phase",
@@ -465,33 +460,39 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
     }
 }
 
-impl From<wgpu::CreateSurfaceError> for PlatformError {
+impl From<wgpu::CreateSurfaceError> for RenderError {
     fn from(err: wgpu::CreateSurfaceError) -> Self {
-        PlatformError::RendererCreationFailed(err.to_string())
+        RenderError::Creation {
+            source: Box::new(err),
+        }
     }
 }
 
-impl From<wgpu::RequestAdapterError> for PlatformError {
+impl From<wgpu::RequestAdapterError> for RenderError {
     fn from(err: wgpu::RequestAdapterError) -> Self {
-        PlatformError::RendererCreationFailed(err.to_string())
+        RenderError::Creation {
+            source: Box::new(err),
+        }
     }
 }
 
-impl From<wgpu::RequestDeviceError> for PlatformError {
+impl From<wgpu::RequestDeviceError> for RenderError {
     fn from(err: wgpu::RequestDeviceError) -> Self {
-        PlatformError::RendererCreationFailed(err.to_string())
+        RenderError::Creation {
+            source: Box::new(err),
+        }
     }
 }
 
-impl From<wgpu::SurfaceError> for PlatformError {
+impl From<wgpu::SurfaceError> for RenderError {
     fn from(err: wgpu::SurfaceError) -> Self {
         tracing::warn!(target: diag::RENDER, error = ?err, "surface error");
         match err {
-            wgpu::SurfaceError::Lost => PlatformError::Frame(FrameError::SwapchainLost),
-            wgpu::SurfaceError::OutOfMemory => PlatformError::Frame(FrameError::OutOfMemory),
-            wgpu::SurfaceError::Outdated => PlatformError::Frame(FrameError::OutdatedSurface),
-            wgpu::SurfaceError::Other => PlatformError::Frame(FrameError::Other(err.to_string())),
-            wgpu::SurfaceError::Timeout => PlatformError::Frame(FrameError::Timeout),
+            wgpu::SurfaceError::Lost => RenderError::Frame(FrameError::SwapchainLost),
+            wgpu::SurfaceError::OutOfMemory => RenderError::Frame(FrameError::OutOfMemory),
+            wgpu::SurfaceError::Outdated => RenderError::Frame(FrameError::OutdatedSurface),
+            wgpu::SurfaceError::Other => RenderError::Frame(FrameError::Other(err.to_string())),
+            wgpu::SurfaceError::Timeout => RenderError::Frame(FrameError::Timeout),
         }
     }
 }
