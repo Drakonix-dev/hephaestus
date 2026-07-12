@@ -20,7 +20,7 @@ impl MeshManager {
             meshes: HashMap::new(),
         }
     }
-    
+
     pub(crate) fn create_mesh(
         &mut self,
         device: &wgpu::Device,
@@ -28,22 +28,25 @@ impl MeshManager {
         def: &MeshDefinition,
     ) {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-           label: Some("Mesh Vertex Buffer"),
-           contents: bytemuck::cast_slice(&def.vertices),
-           usage: wgpu::BufferUsages::VERTEX,
+            label: Some("Mesh Vertex Buffer"),
+            contents: bytemuck::cast_slice(&def.vertices),
+            usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-           label: Some("Mesh Index Buffer"),
-           contents: bytemuck::cast_slice(&def.indices),
-           usage: wgpu::BufferUsages::INDEX,
+            label: Some("Mesh Index Buffer"),
+            contents: bytemuck::cast_slice(&def.indices),
+            usage: wgpu::BufferUsages::INDEX,
         });
 
-        self.meshes.insert(handle, MeshInstance {
-            index_buffer,
-            index_count: def.indices.len() as u32,
-            vertex_buffer,
-        });
+        self.meshes.insert(
+            handle,
+            MeshInstance {
+                index_buffer,
+                index_count: def.indices.len() as u32,
+                vertex_buffer,
+            },
+        );
     }
 
     pub(crate) fn get_mesh(&self, handle: &MeshHandle) -> Option<&MeshInstance> {

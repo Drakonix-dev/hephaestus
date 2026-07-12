@@ -157,7 +157,7 @@ impl<W: Window> Renderer<W> {
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: format,
+            format,
             width: window_info.width.max(1),
             height: window_info.height.max(1),
             present_mode,
@@ -209,7 +209,7 @@ impl<W: Window> Renderer<W> {
                     "surface format not found",
                 ))))?,
             &self.device,
-            &shader,
+            shader,
             &self.globals.layout,
             &self.model_pool.layout,
             RenderState { depth_enabled },
@@ -361,7 +361,7 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
             self.renderer
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some(&format!("Render {:?} Encode", phase)),
+                    label: Some(&format!("Render {phase:?} Encode")),
                 });
 
         let is_first_pass = self.first_pass;
@@ -373,10 +373,7 @@ impl<'a, W: Window> renderer::RenderFrame<'a> for RenderFrame<'a, W> {
             wgpu::LoadOp::Load
         };
 
-        let depth_enabled = matches!(
-            phase.domain,
-            RenderDomain::Other(_) | RenderDomain::World3D
-        );
+        let depth_enabled = matches!(phase.domain, RenderDomain::Other(_) | RenderDomain::World3D);
 
         let depth_stencil_attachment = if depth_enabled {
             let is_first_depth_pass = self.first_depth_pass;

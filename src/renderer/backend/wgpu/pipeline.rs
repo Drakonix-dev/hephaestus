@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::renderer::{backend::wgpu::shader::ShaderInstance, ShaderHandle, Vertex};
+use crate::renderer::{ShaderHandle, Vertex, backend::wgpu::shader::ShaderInstance};
 
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -75,7 +75,7 @@ impl PipelineManager {
                 entry_point: Some("fs_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: format,
+                    format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -102,7 +102,14 @@ impl PipelineManager {
         let key = (shader.handle, render_state);
 
         if !self.pipelines.contains_key(&key) {
-            let pipeline = self.create_pipeline(format, device, shader, globals_layout, model_layout, render_state);
+            let pipeline = self.create_pipeline(
+                format,
+                device,
+                shader,
+                globals_layout,
+                model_layout,
+                render_state,
+            );
             self.pipelines.insert(key, pipeline);
         }
 

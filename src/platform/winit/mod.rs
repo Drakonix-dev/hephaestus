@@ -31,8 +31,8 @@ use crate::{
 
 pub(crate) struct WinitPlatform;
 
-impl<'a> WinitPlatform {
-    pub fn run<A: Application + 'a>(
+impl WinitPlatform {
+    pub fn run<'a, A: Application + 'a>(
         app: A,
         cfg: EngineConfig,
         graph: RenderGraph,
@@ -43,12 +43,13 @@ impl<'a> WinitPlatform {
         event_loop.set_control_flow(ControlFlow::Poll);
 
         let mut app_state = AppState::Uninitialized { app, cfg, graph };
-        let res = event_loop.run_app(&mut app_state)?;
+        event_loop.run_app(&mut app_state)?;
 
-        Ok(res)
+        Ok(())
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum AppState<A: Application> {
     Initialized(AppHandler<A>),
     MaybeUninit,
@@ -82,13 +83,10 @@ impl<A: Application> AppState<A> {
 
 impl<A: Application> ApplicationHandler for AppState<A> {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        match self {
-            AppState::Initialized(handler) => {
-                if handler.exit_requested.get() {
-                    event_loop.exit();
-                }
+        if let AppState::Initialized(handler) = self {
+            if handler.exit_requested.get() {
+                event_loop.exit();
             }
-            _ => {}
         }
     }
 
@@ -105,9 +103,8 @@ impl<A: Application> ApplicationHandler for AppState<A> {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        match self {
-            AppState::Uninitialized { .. } => self.init(event_loop),
-            _ => {}
+        if let AppState::Uninitialized { .. } = self {
+            self.init(event_loop)
         }
     }
 

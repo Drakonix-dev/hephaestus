@@ -31,9 +31,9 @@ impl TextureManager {
     ) -> Result<(), PlatformError> {
         let image = ImageReader::open(def.source.as_path())?
             .decode()
-            .or_else(|err| match err {
-                image::ImageError::IoError(io) => Err(PlatformError::IoError(io)),
-                _ => Err(PlatformError::AssetLoadFailed(def.source.clone())),
+            .map_err(|err| match err {
+                image::ImageError::IoError(io) => PlatformError::IoError(io),
+                _ => PlatformError::AssetLoadFailed(def.source.clone()),
             })?;
 
         let rgba = image.to_rgba8();
@@ -56,13 +56,13 @@ impl TextureManager {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Texture"),
             size: wgpu::Extent3d {
-                width: width,
-                height: height,
+                width,
+                height,
                 depth_or_array_layers: depth_or_layers,
             },
             mip_level_count: 1,
             sample_count: 1,
-            dimension: dimension,
+            dimension,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
