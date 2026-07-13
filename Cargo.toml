@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "math-derive"]
+
 [package]
 name = "hephaestus"
 version = "0.1.0"
@@ -7,6 +10,7 @@ edition = "2024"
 bytemuck = { version = "1.23.1", features = ["derive"] }
 glam = { version = "0.33.2", features = ["bytemuck", "libm"] }
 image = "0.25.6"
+math-derive = { path = "math-derive" }
 opentelemetry = { version = "0.32", optional = true }
 opentelemetry-otlp = { version = "0.32", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"], optional = true }
 opentelemetry_sdk = { version = "0.32", optional = true }
