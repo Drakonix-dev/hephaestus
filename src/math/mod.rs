@@ -15,10 +15,6 @@ macro_rules! impl_default {
 
 #[derive(WrapFrom, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
-pub struct Mat3(pub(crate) glam::Mat3);
-
-#[derive(WrapFrom, Clone, Copy, Pod, Zeroable)]
-#[repr(C)]
 pub struct Mat4(pub(crate) glam::Mat4);
 
 wrap_fns!(Mat4, glam::Mat4, {

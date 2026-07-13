@@ -1,10 +1,18 @@
-mod api;
-mod error;
+pub use api::{
+    BindGroupLayout, BindingDesc, BindingType, BuiltinShader, DrawCommand, DrawMesh,
+    MaterialDefinition, MaterialHandle, MaterialParams, MaterialUniforms, MeshDefinition,
+    MeshHandle, OrthographicProjection, PerspectiveProjection, PresentMode, Projection,
+    RenderDomain, RenderGraph, RenderPhase, Renderable, RendererHandle, ShaderDefinition,
+    ShaderHandle, ShaderStage, SubPhase, TextureDefinition, TextureDimension, TextureHandle,
+    Transform, Vertex, Viewport,
+};
+pub use error::{FrameError, RenderError};
 
 pub(crate) mod backend;
+pub(crate) use api::{RenderCommand, RenderQueue, RenderQueueReader};
 
-pub use api::*;
-pub use error::{FrameError, RenderError};
+mod api;
+mod error;
 
 use std::collections::HashMap;
 
@@ -76,7 +84,7 @@ impl<B: RendererBackend> Renderer<B> {
         })
     }
 
-    pub(crate) fn render<T>(&mut self, phased_draws: T) -> Result<(), RenderError>
+    pub(crate) fn render<T>(&mut self, mut phased_draws: T) -> Result<(), RenderError>
     where
         T: FnMut(&RenderPhase) -> Option<Vec<DrawCommand>>,
     {
@@ -89,8 +97,6 @@ impl<B: RendererBackend> Renderer<B> {
         let _enter = span.enter();
 
         let mut cmds = self.queue.drain();
-        let mut phased_draws = phased_draws;
-
         self.process_staging_uploads(&mut cmds)?;
 
         let mut draws_by_phase: Vec<(RenderPhase, Vec<DrawCommand>)> =
@@ -279,7 +285,7 @@ mod tests {
 
     fn renderer_with_phase(
         phase: RenderPhase,
-    ) -> (Renderer<MockBackend>, super::RenderQueueWriter) {
+    ) -> (Renderer<MockBackend>, super::api::RenderQueueWriter) {
         let (writer, reader) = RenderQueue::new();
         let graph = RenderGraph::new().add_phase(phase);
         let renderer = Renderer::new(MockBackend, &graph, reader).unwrap();
