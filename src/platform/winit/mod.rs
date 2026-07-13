@@ -24,8 +24,8 @@ use crate::{
     events::Event,
     platform::core::PlatformError,
     renderer::{
-        RenderGraph, Renderer, RendererHandle, Viewport, backend::wgpu::Renderer as WgpuRenderer,
-        render_queue_channel,
+        FrameError, RenderError, RenderGraph, Renderer, RendererHandle, Viewport,
+        backend::wgpu::Renderer as WgpuRenderer, render_queue_channel,
     },
 };
 
@@ -154,9 +154,31 @@ impl<A: Application> AppState<A> {
             handler.instance.update(&ctx, dt);
         }
 
-        let res = handler
+        let prepared = match handler
             .renderer
-            .render(|phase| handler.instance.render(phase));
+            .prepare(|phase| handler.instance.render(phase))
+        {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                tracing::error!(target: diag::FRAME, error = ?err, "frame render failed");
+                handler.instance.handle_error(err);
+                return;
+            }
+        };
+
+        let mut res = handler.renderer.submit(&prepared);
+
+        if let Err(RenderError::Frame(FrameError::SwapchainLost | FrameError::OutdatedSurface)) =
+            &res
+        {
+            tracing::warn!(
+                target: diag::FRAME,
+                error = ?res.as_ref().err(),
+                "surface lost or outdated, reconfiguring and retrying frame"
+            );
+            handler.renderer.reconfigure();
+            res = handler.renderer.submit(&prepared);
+        }
 
         if let Err(err) = res {
             tracing::error!(target: diag::FRAME, error = ?err, "frame render failed");
