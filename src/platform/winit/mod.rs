@@ -96,26 +96,16 @@ impl<A: Application> AppState<A> {
         let initial_size = window.inner_size();
         let viewport = Viewport::new(initial_size.width, initial_size.height);
 
-        let backend = match pollster::block_on(WgpuRenderer::new(&self.cfg, window)) {
-            Ok(backend) => backend,
-            Err(err) => return Err(err.into()),
-        };
-
         let (writer, reader) = render_queue_channel();
         let mut renderer_handle = RendererHandle::new(writer, viewport);
 
-        let renderer = match Renderer::new(backend, &self.graph, reader) {
-            Ok(renderer) => renderer,
-            Err(err) => return Err(err.into()),
-        };
+        let backend = pollster::block_on(WgpuRenderer::new(&self.cfg, window))?;
+        let renderer = Renderer::new(backend, &self.graph, reader)?;
 
         let (tick_tx, tick_rx) = mpsc::channel();
         let tick_rate_hz = Arc::new(AtomicU32::new(self.cfg.tick_rate_hz));
 
-        let simulation = match spawn_simulation_ticker(tick_tx, tick_rate_hz.clone()) {
-            Ok(simulation) => simulation,
-            Err(err) => return Err(err.into()),
-        };
+        let simulation = spawn_simulation_ticker(tick_tx, tick_rate_hz.clone())?;
 
         let runtime_config = RuntimeConfig::from(&self.cfg);
         let instance = self.app.create(&ApplicationContext::new(
