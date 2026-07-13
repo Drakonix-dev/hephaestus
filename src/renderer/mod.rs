@@ -9,7 +9,7 @@ pub use api::{
 pub use error::{FrameError, RenderError};
 
 pub(crate) mod backend;
-pub(crate) use api::{RenderCommand, RenderQueue, RenderQueueReader};
+pub(crate) use api::{RenderCommand, RenderQueueReader, render_queue_channel};
 
 mod api;
 mod error;
@@ -207,7 +207,7 @@ mod tests {
         math::Transform3D,
         renderer::{
             DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle,
-            RenderDomain, RenderGraph, RenderPhase, RenderQueue, ShaderDefinition, ShaderHandle,
+            RenderDomain, RenderGraph, RenderPhase, ShaderDefinition, ShaderHandle,
             TextureDefinition, TextureHandle, Transform,
         },
     };
@@ -286,7 +286,7 @@ mod tests {
     fn renderer_with_phase(
         phase: RenderPhase,
     ) -> (Renderer<MockBackend>, super::api::RenderQueueWriter) {
-        let (writer, reader) = RenderQueue::new();
+        let (writer, reader) = render_queue_channel();
         let graph = RenderGraph::new().add_phase(phase);
         let renderer = Renderer::new(MockBackend, &graph, reader).unwrap();
         (renderer, writer)

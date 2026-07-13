@@ -8,7 +8,8 @@ pub mod events;
 pub mod math;
 pub mod renderer;
 
-pub(crate) mod macros;
+pub(crate) mod channels;
+pub(crate) mod handles;
 
 mod api;
 mod platform;

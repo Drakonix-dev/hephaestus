@@ -1,4 +1,3 @@
-#[macro_export]
 macro_rules! define_handle {
     ($name:ident) => {
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -24,3 +23,5 @@ macro_rules! define_handle {
         }
     };
 }
+
+pub(crate) use define_handle;

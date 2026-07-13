@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
-use crate::define_handle;
+use crate::handles::define_handle;
 
 // MeshHandle defines a handle for a specific mesh.
 define_handle!(MeshHandle);

@@ -1,6 +1,5 @@
-use std::sync::mpsc::{self, Receiver, Sender};
-
 use crate::{
+    channels::define_channel,
     math::{Mat4, Transform2D, Transform3D},
     renderer::{
         MaterialDefinition, MaterialHandle, MeshDefinition, MeshHandle, RenderPhase,
@@ -18,6 +17,8 @@ pub(crate) enum RenderCommand {
     Render(Box<dyn Renderable + Send>),
     SetCamera(Mat4),
 }
+
+define_channel!(RenderQueue, RenderCommand);
 
 // DrawCommand defines a command for drawing something to the window.
 pub enum DrawCommand {
@@ -41,43 +42,4 @@ pub trait Renderable {
 pub enum Transform {
     Transform2D(Transform2D),
     Transform3D(Transform3D),
-}
-
-pub(crate) struct RenderQueue;
-
-impl RenderQueue {
-    #[allow(clippy::new_ret_no_self)]
-    pub(crate) fn new() -> (RenderQueueWriter, RenderQueueReader) {
-        let (tx, rx) = mpsc::channel();
-        (RenderQueueWriter { tx }, RenderQueueReader { rx })
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct RenderQueueWriter {
-    tx: Sender<RenderCommand>,
-}
-
-impl RenderQueueWriter {
-    pub(crate) fn push(&self, cmd: RenderCommand) {
-        self.tx
-            .send(cmd)
-            .expect("pushed render command after queue reader dropped");
-    }
-}
-
-pub(crate) struct RenderQueueReader {
-    rx: Receiver<RenderCommand>,
-}
-
-impl RenderQueueReader {
-    pub(crate) fn drain(&self) -> Vec<RenderCommand> {
-        let mut cmds = Vec::new();
-
-        while let Ok(cmd) = self.rx.try_recv() {
-            cmds.push(cmd);
-        }
-
-        cmds
-    }
 }

@@ -9,7 +9,9 @@ pub use shader::{
 };
 pub use texture::{TextureDefinition, TextureDimension, TextureHandle};
 
-pub(crate) use commands::{RenderCommand, RenderQueue, RenderQueueReader, RenderQueueWriter};
+pub(crate) use commands::{
+    RenderCommand, RenderQueueReader, RenderQueueWriter, render_queue_channel,
+};
 
 mod builtin;
 mod camera;

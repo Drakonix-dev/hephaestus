@@ -18,14 +18,14 @@ use winit::{
 use super::core;
 use crate::{
     Application, ApplicationContext, ApplicationInstance, EngineError,
-    commands::{EngineCommand, EngineCommandQueue, EngineCommandReader, EngineCommandWriter},
+    commands::{self, EngineCommand, EngineCommandReader, EngineCommandWriter},
     config::{EngineConfig, RuntimeConfig, WindowMode},
     diagnostics::diag,
     events::Event,
     platform::core::PlatformError,
     renderer::{
-        RenderGraph, RenderQueue, Renderer, RendererHandle, Viewport,
-        backend::wgpu::Renderer as WgpuRenderer,
+        RenderGraph, Renderer, RendererHandle, Viewport, backend::wgpu::Renderer as WgpuRenderer,
+        render_queue_channel,
     },
 };
 
@@ -165,7 +165,7 @@ impl<A: Application> AppHandler<A> {
             Err(err) => return Err((app, err.into())),
         };
 
-        let (writer, reader) = RenderQueue::new();
+        let (writer, reader) = render_queue_channel();
         let mut renderer_handle = RendererHandle::new(writer, viewport);
 
         let renderer = match Renderer::new(backend, &graph, reader) {
@@ -173,7 +173,7 @@ impl<A: Application> AppHandler<A> {
             Err(err) => return Err((app, err.into())),
         };
 
-        let (engine_writer, engine_commands) = EngineCommandQueue::new();
+        let (engine_writer, engine_commands) = commands::engine_command_channel();
         let tick_rate_hz = Arc::new(AtomicU32::new(cfg.tick_rate_hz));
 
         let (tick_tx, tick_rx) = mpsc::channel();
