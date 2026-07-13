@@ -29,8 +29,8 @@ pub struct RuntimeConfig {
     pub window_mode: WindowMode,
 }
 
-impl RuntimeConfig {
-    pub(crate) fn from_config(cfg: &EngineConfig) -> Self {
+impl From<&EngineConfig> for RuntimeConfig {
+    fn from(cfg: &EngineConfig) -> Self {
         Self {
             present_mode: cfg.present_mode,
             tick_rate_hz: cfg.tick_rate_hz,
