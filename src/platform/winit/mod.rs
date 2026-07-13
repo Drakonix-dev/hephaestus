@@ -1,11 +1,11 @@
 use std::{
-    mem::{self},
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
-        mpsc,
+        mpsc::{self, Receiver},
     },
-    thread, time,
+    thread::{self, JoinHandle},
+    time,
 };
 
 use winit::{
@@ -18,7 +18,7 @@ use winit::{
 use super::core;
 use crate::{
     Application, ApplicationContext, ApplicationInstance, EngineError,
-    commands::{self, EngineCommand, EngineCommandReader, EngineCommandWriter},
+    commands::{EngineCommand, EngineCommandReader, EngineCommandWriter, engine_command_channel},
     config::{EngineConfig, RuntimeConfig, WindowMode},
     diagnostics::diag,
     events::Event,
@@ -42,221 +42,112 @@ impl WinitPlatform {
         let event_loop = EventLoop::new()?;
         event_loop.set_control_flow(ControlFlow::Poll);
 
-        let mut app_state = AppState::Uninitialized { app, cfg, graph };
+        let mut app_state = AppState::new(app, cfg, graph);
         event_loop.run_app(&mut app_state)?;
 
         Ok(())
     }
 }
 
-#[allow(clippy::large_enum_variant)]
-enum AppState<A: Application> {
-    Initialized(AppHandler<A>),
-    MaybeUninit,
-    Uninitialized {
-        app: A,
-        cfg: EngineConfig,
-        graph: RenderGraph,
-    },
-}
-
-impl<A: Application> AppState<A> {
-    fn init(&mut self, event_loop: &ActiveEventLoop) {
-        match mem::replace(self, AppState::MaybeUninit) {
-            AppState::Initialized(_) => panic!("Already initialized"),
-            AppState::Uninitialized { app, cfg, graph } => {
-                let handler = match AppHandler::new(app, cfg, event_loop, graph) {
-                    Ok(handler) => handler,
-                    Err((mut app, err)) => {
-                        app.handle_error(err);
-                        event_loop.exit();
-                        return;
-                    }
-                };
-
-                *self = Self::Initialized(handler);
-            }
-            _ => {}
-        }
-    }
-}
-
-impl<A: Application> ApplicationHandler for AppState<A> {
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if let AppState::Initialized(handler) = self
-            && handler.exit_requested
-        {
-            event_loop.exit();
-        }
-    }
-
-    fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
-
-    fn exiting(&mut self, _: &ActiveEventLoop) {
-        let old_state = mem::replace(self, AppState::MaybeUninit);
-
-        if let AppState::Initialized(handler) = old_state {
-            let (app, cfg, graph) = handler.exit();
-
-            *self = AppState::Uninitialized { app, cfg, graph };
-        }
-    }
-
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if let AppState::Uninitialized { .. } = self {
-            self.init(event_loop)
-        }
-    }
-
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
-        let handler = match self {
-            AppState::Initialized(handler) => handler,
-            _ => return,
-        };
-
-        match event {
-            WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
-            WindowEvent::RedrawRequested => handler.redraw(),
-            WindowEvent::Resized(size) => handler.resize(size),
-            _ => {}
-        }
-    }
-}
-
-struct AppHandler<A: Application> {
+struct AppState<A: Application> {
     app: A,
     cfg: EngineConfig,
-    engine_commands: EngineCommandReader,
+    engine_reader: EngineCommandReader,
     engine_writer: EngineCommandWriter,
-    exit_requested: bool,
-    instance: A::Instance,
     graph: RenderGraph,
+    handler: Option<AppHandler<A::Instance>>,
+}
+
+struct AppHandler<I: ApplicationInstance> {
+    instance: I,
     last_tick: time::Instant,
     renderer: Renderer<WgpuRenderer<Window>>,
     renderer_handle: RendererHandle,
     runtime_config: RuntimeConfig,
-    simulation: thread::JoinHandle<()>,
-    tick_rate_hz: Arc<AtomicU32>,
-    tick_rx: mpsc::Receiver<()>,
+    simulation: JoinHandle<()>,
+    tick_rx: Receiver<()>,
 }
 
-impl<A: Application> AppHandler<A> {
-    fn new(
-        mut app: A,
-        cfg: EngineConfig,
-        event_loop: &ActiveEventLoop,
-        graph: RenderGraph,
-    ) -> Result<Self, (A, EngineError)> {
-        let mut attrs = Window::default_attributes().with_title(cfg.window_title.clone());
-        if cfg.window_mode == WindowMode::BorderlessFullscreen {
+impl<A: Application> AppState<A> {
+    fn new(app: A, cfg: EngineConfig, graph: RenderGraph) -> Self {
+        let (engine_writer, engine_reader) = engine_command_channel();
+
+        Self {
+            app,
+            cfg,
+            engine_reader,
+            engine_writer,
+            graph,
+            handler: None,
+        }
+    }
+
+    fn init_handler(&mut self, event_loop: &ActiveEventLoop) -> Result<(), EngineError> {
+        let mut attrs = Window::default_attributes().with_title(self.cfg.window_title.clone());
+        if self.cfg.window_mode == WindowMode::BorderlessFullscreen {
             attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
         }
 
         let window = match event_loop.create_window(attrs) {
             Ok(window) => window,
-            Err(err) => return Err((app, PlatformError::from(err).into())),
+            Err(err) => return Err(PlatformError::from(err).into()),
         };
 
         let initial_size = window.inner_size();
         let viewport = Viewport::new(initial_size.width, initial_size.height);
 
-        let backend = match pollster::block_on(WgpuRenderer::new(&cfg, window)) {
+        let backend = match pollster::block_on(WgpuRenderer::new(&self.cfg, window)) {
             Ok(backend) => backend,
-            Err(err) => return Err((app, err.into())),
+            Err(err) => return Err(err.into()),
         };
 
         let (writer, reader) = render_queue_channel();
         let mut renderer_handle = RendererHandle::new(writer, viewport);
 
-        let renderer = match Renderer::new(backend, &graph, reader) {
+        let renderer = match Renderer::new(backend, &self.graph, reader) {
             Ok(renderer) => renderer,
-            Err(err) => return Err((app, err.into())),
+            Err(err) => return Err(err.into()),
         };
-
-        let (engine_writer, engine_commands) = commands::engine_command_channel();
-        let tick_rate_hz = Arc::new(AtomicU32::new(cfg.tick_rate_hz));
 
         let (tick_tx, tick_rx) = mpsc::channel();
+        let tick_rate_hz = Arc::new(AtomicU32::new(self.cfg.tick_rate_hz));
+
         let simulation = match spawn_simulation_ticker(tick_tx, tick_rate_hz.clone()) {
             Ok(simulation) => simulation,
-            Err(err) => return Err((app, err.into())),
+            Err(err) => return Err(err.into()),
         };
 
-        let runtime_config = RuntimeConfig::from_config(&cfg);
-
-        let instance = app.create(&ApplicationContext::new(
-            &engine_writer,
+        let runtime_config = RuntimeConfig::from(&self.cfg);
+        let instance = self.app.create(&ApplicationContext::new(
+            &self.engine_writer,
             &runtime_config,
             &mut renderer_handle,
         ));
-        let handler = Self {
-            app,
-            cfg,
-            engine_commands,
-            engine_writer,
-            exit_requested: false,
+
+        self.handler = Some(AppHandler {
             instance,
-            graph,
             last_tick: time::Instant::now(),
             renderer,
             renderer_handle,
             runtime_config,
             simulation,
-            tick_rate_hz,
             tick_rx,
-        };
+        });
 
-        Ok(handler)
-    }
-
-    fn exit(self) -> (A, EngineConfig, RenderGraph) {
-        let AppHandler {
-            app,
-            cfg,
-            mut instance,
-            graph,
-            mut renderer,
-            simulation,
-            tick_rx,
-            ..
-        } = self;
-
-        instance.quit();
-        renderer.shutdown();
-
-        drop(tick_rx);
-        let _ = simulation.join();
-
-        (app, cfg, graph)
+        Ok(())
     }
 
     fn redraw(&mut self) {
+        let Some(handler) = self.handler.as_mut() else {
+            return;
+        };
+
         let _frame = tracing::info_span!(target: diag::FRAME, "frame").entered();
 
-        for cmd in self.engine_commands.drain() {
-            match cmd {
-                EngineCommand::RequestExit => self.exit_requested = true,
-                EngineCommand::SetPresentMode(mode) => {
-                    self.renderer.set_present_mode(mode);
-                    self.runtime_config.present_mode = mode;
-                }
-                EngineCommand::SetTickRate(hz) => {
-                    let hz = hz.max(1);
-                    self.tick_rate_hz.store(hz, Ordering::Relaxed);
-                    self.runtime_config.tick_rate_hz = hz;
-                }
-                EngineCommand::SetWindowMode(mode) => {
-                    self.renderer
-                        .set_fullscreen(mode == WindowMode::BorderlessFullscreen);
-                    self.runtime_config.window_mode = mode;
-                }
-            }
-        }
-
-        while self.tick_rx.try_recv().is_ok() {
+        while handler.tick_rx.try_recv().is_ok() {
             let now = time::Instant::now();
-            let dt = now - self.last_tick;
-            self.last_tick = now;
+            let dt = now - handler.last_tick;
+            handler.last_tick = now;
 
             let _tick = tracing::debug_span!(
                 target: diag::SIM,
@@ -267,35 +158,116 @@ impl<A: Application> AppHandler<A> {
 
             let ctx = ApplicationContext::new(
                 &self.engine_writer,
-                &self.runtime_config,
-                &mut self.renderer_handle,
+                &handler.runtime_config,
+                &mut handler.renderer_handle,
             );
-            self.instance.update(&ctx, dt);
+            handler.instance.update(&ctx, dt);
         }
 
-        let res = self.renderer.render(|phase| self.instance.render(phase));
+        let res = handler
+            .renderer
+            .render(|phase| handler.instance.render(phase));
 
         if let Err(err) = res {
             tracing::error!(target: diag::FRAME, error = ?err, "frame render failed");
-            self.instance.handle_error(err);
+            handler.instance.handle_error(err);
         }
     }
 
     fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
+        let Some(handler) = self.handler.as_mut() else {
+            return;
+        };
+
         let width = size.width.max(1);
         let height = size.height.max(1);
 
-        self.renderer.resize(width, height);
-        self.renderer_handle
+        handler.renderer.resize(width, height);
+        handler
+            .renderer_handle
             .set_viewport(Viewport::new(width, height));
 
         let ctx = ApplicationContext::new(
             &self.engine_writer,
-            &self.runtime_config,
-            &mut self.renderer_handle,
+            &handler.runtime_config,
+            &mut handler.renderer_handle,
         );
-        self.instance
+        handler
+            .instance
             .handle_event(&ctx, Event::Resized(width, height));
+    }
+}
+
+impl<A: Application> ApplicationHandler for AppState<A> {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let mut dirty = false;
+
+        for cmd in self.engine_reader.drain() {
+            match cmd {
+                EngineCommand::RequestExit => event_loop.exit(),
+                EngineCommand::SetPresentMode(mode) => {
+                    self.cfg.present_mode = mode;
+                    dirty = true;
+                }
+                EngineCommand::SetTickRate(hz) => {
+                    self.cfg.tick_rate_hz = hz.max(1);
+                    dirty = true;
+                }
+                EngineCommand::SetWindowMode(mode) => {
+                    self.cfg.window_mode = mode;
+                    dirty = true;
+                }
+            }
+        }
+
+        if !dirty {
+            return;
+        }
+
+        let Some(handler) = self.handler.as_mut() else {
+            return;
+        };
+
+        handler.runtime_config = RuntimeConfig::from(&self.cfg);
+        handler
+            .renderer
+            .set_fullscreen(handler.runtime_config.window_mode == WindowMode::BorderlessFullscreen);
+        handler
+            .renderer
+            .set_present_mode(handler.runtime_config.present_mode);
+    }
+
+    fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
+
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        let Some(mut handler) = self.handler.take() else {
+            return;
+        };
+
+        handler.instance.quit();
+        handler.renderer.shutdown();
+
+        drop(handler.tick_rx);
+        let _ = handler.simulation.join();
+    }
+
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.handler.is_some() {
+            return;
+        }
+
+        if let Err(err) = self.init_handler(event_loop) {
+            self.app.handle_error(err)
+        }
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
+            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::Resized(size) => self.resize(size),
+            _ => {}
+        }
     }
 }
 
