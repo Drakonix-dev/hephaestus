@@ -1,7 +1,5 @@
-mod api;
-mod platform;
-
-pub(crate) mod macros;
+pub use api::{Application, ApplicationContext, ApplicationInstance, EngineError};
+pub use platform::core::PlatformError;
 
 pub mod commands;
 pub mod config;
@@ -10,20 +8,23 @@ pub mod events;
 pub mod math;
 pub mod renderer;
 
-pub use api::*;
-pub use platform::core::PlatformError;
+pub(crate) mod macros;
+
+mod api;
+mod platform;
 
 use crate::{config::EngineConfig, renderer::RenderGraph};
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run<A: crate::Application + 'static>(
     app: A,
     cfg: EngineConfig,
     graph: RenderGraph,
 ) -> Result<(), api::EngineError> {
-    #[cfg(not(target_arch = "wasm32"))]
     Ok(crate::platform::winit::WinitPlatform::run(app, cfg, graph)?)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_instance<A: crate::ApplicationInstance>(
     factory: impl Fn(&ApplicationContext) -> A + 'static,
     cfg: EngineConfig,
@@ -31,7 +32,6 @@ pub fn run_instance<A: crate::ApplicationInstance>(
 ) -> Result<(), EngineError> {
     let app = InstanceApplication::new(Box::new(factory));
 
-    #[cfg(not(target_arch = "wasm32"))]
     Ok(crate::platform::winit::WinitPlatform::run(app, cfg, graph)?)
 }
 

@@ -1,3 +1,16 @@
+pub use builtin::BuiltinShader;
+pub use camera::{OrthographicProjection, PerspectiveProjection, Projection};
+pub use commands::{DrawCommand, DrawMesh, Renderable, Transform};
+pub use graph::{RenderDomain, RenderGraph, RenderPhase, SubPhase};
+pub use material::{MaterialDefinition, MaterialHandle, MaterialParams, MaterialUniforms};
+pub use mesh::{MeshDefinition, MeshHandle, Vertex};
+pub use shader::{
+    BindGroupLayout, BindingDesc, BindingType, ShaderDefinition, ShaderHandle, ShaderStage,
+};
+pub use texture::{TextureDefinition, TextureDimension, TextureHandle};
+
+pub(crate) use commands::{RenderCommand, RenderQueue, RenderQueueReader, RenderQueueWriter};
+
 mod builtin;
 mod camera;
 mod commands;
@@ -7,15 +20,7 @@ mod mesh;
 mod shader;
 mod texture;
 
-pub use builtin::*;
-pub use camera::*;
-pub use commands::*;
-pub use graph::*;
-pub use material::*;
-pub use mesh::*;
-pub use shader::*;
-pub use texture::*;
-
+use builtin::builtin_shader_definitions;
 use std::collections::HashMap;
 
 use crate::{math::Mat4, renderer::RenderError};
@@ -43,7 +48,7 @@ impl Viewport {
     }
 
     pub fn aspect_ratio(&self) -> f32 {
-        self.width as f32 / self.height.max(1) as f32
+        self.width as f32 / self.height as f32
     }
 }
 
