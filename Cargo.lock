@@ -963,6 +963,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "paste",
  "pollster",
  "raw-window-handle",
  "thiserror 2.0.18",

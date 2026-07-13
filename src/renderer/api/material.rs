@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
-    define_handle,
+    handles::define_handle,
     renderer::{ShaderHandle, TextureHandle},
 };
 
