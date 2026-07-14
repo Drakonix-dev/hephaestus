@@ -25,7 +25,7 @@ mod texture;
 use builtin::builtin_shader_definitions;
 use std::collections::HashMap;
 
-use crate::{math::Mat4, renderer::RenderError};
+use crate::{events::Event, math::Mat4, renderer::RenderError};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Viewport {
@@ -54,6 +54,8 @@ impl Viewport {
     }
 }
 
+impl Event for Viewport {}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PresentMode {
     Vsync,
@@ -65,15 +67,13 @@ pub enum PresentMode {
 pub struct RendererHandle {
     builtin_shaders: HashMap<BuiltinShader, ShaderHandle>,
     queue: RenderQueueWriter,
-    viewport: Viewport,
 }
 
 impl RendererHandle {
-    pub(crate) fn new(queue: RenderQueueWriter, viewport: Viewport) -> Self {
+    pub(crate) fn new(queue: RenderQueueWriter) -> Self {
         let mut handle = Self {
             builtin_shaders: HashMap::new(),
             queue,
-            viewport,
         };
 
         for (shader, def) in builtin_shader_definitions() {
@@ -130,13 +130,5 @@ impl RendererHandle {
 
     pub fn set_camera(&self, view_proj: Mat4) {
         self.queue.push(RenderCommand::SetCamera(view_proj));
-    }
-
-    pub(crate) fn set_viewport(&mut self, viewport: Viewport) {
-        self.viewport = viewport;
-    }
-
-    pub fn viewport(&self) -> Viewport {
-        self.viewport
     }
 }

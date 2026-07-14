@@ -6,11 +6,12 @@ use crate::{
     config::EngineConfig,
     diagnostics::diag,
     math::Mat4,
-    platform::core::HasWindowInfo,
+    platform::HasViewport,
     renderer::{
         self, DrawCommand, DrawMesh, FrameError, MaterialDefinition, MaterialHandle,
         MeshDefinition, MeshHandle, PresentMode, RenderDomain, RenderError, RenderPhase,
         RendererBackend, ShaderDefinition, ShaderHandle, TextureDefinition, TextureHandle,
+        Viewport,
         backend::wgpu::{
             globals::{FrameGlobals, ModelUniformPool},
             material::MaterialManager,
@@ -62,10 +63,10 @@ fn resolve_present_mode(
 }
 
 pub(crate) trait Window:
-    HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static
+    HasWindowHandle + HasDisplayHandle + HasViewport + Send + Sync + 'static
 {
 }
-impl<T: HasWindowHandle + HasDisplayHandle + HasWindowInfo + Send + Sync + 'static> Window for T {}
+impl<T: HasWindowHandle + HasDisplayHandle + HasViewport + Send + Sync + 'static> Window for T {}
 
 pub struct Renderer<W: Window> {
     adapter: wgpu::Adapter,
@@ -148,7 +149,7 @@ impl<W: Window> Renderer<W> {
     }
 
     pub(crate) fn configure_surface(&mut self) {
-        let window_info = self.window.get_window_info();
+        let viewport = self.window.get_viewport();
 
         let caps = self.surface.get_capabilities(&self.adapter);
         let format = caps
@@ -167,8 +168,8 @@ impl<W: Window> Renderer<W> {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: window_info.width.max(1),
-            height: window_info.height.max(1),
+            width: viewport.width().max(1),
+            height: viewport.height().max(1),
             present_mode,
             alpha_mode,
             view_formats: vec![],
@@ -334,6 +335,10 @@ impl<W: Window> RendererBackend for Renderer<W> {
             submission_index: None,
             timeout: None,
         });
+    }
+
+    fn viewport(&self) -> Viewport {
+        self.window.get_viewport()
     }
 }
 

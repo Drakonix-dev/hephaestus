@@ -2,6 +2,8 @@ use std::{any::TypeId, collections::HashMap};
 
 use crate::buffers::{Buffer, Cursor, ErasedBuffer};
 
+pub trait Event: 'static {}
+
 pub struct EventBus {
     buffers: HashMap<TypeId, Box<dyn ErasedBuffer>>,
 }
@@ -13,14 +15,14 @@ impl EventBus {
         }
     }
 
-    pub fn cursor<T: 'static>(&self) -> Option<Cursor<T>> {
+    pub fn cursor<T: Event>(&self) -> Option<Cursor<T>> {
         self.buffers
             .get(&TypeId::of::<T>())
             .and_then(|b| b.as_any().downcast_ref::<Buffer<T>>())
             .map(|buf| buf.cursor())
     }
 
-    pub fn publish<T: 'static>(&mut self, v: T) {
+    pub fn publish<T: Event>(&mut self, v: T) {
         self.buffers
             .entry(TypeId::of::<T>())
             .or_insert_with(|| Box::new(Buffer::<T>::new()))
@@ -30,7 +32,7 @@ impl EventBus {
             .publish(v)
     }
 
-    pub fn read<'a, T: 'static>(&'a self, cursor: &mut Cursor<T>) -> impl Iterator<Item = &'a T> {
+    pub fn read<'a, T: Event>(&'a self, cursor: &mut Cursor<T>) -> impl Iterator<Item = &'a T> {
         self.buffers
             .get(&TypeId::of::<T>())
             .and_then(|b| b.as_any().downcast_ref::<Buffer<T>>())
@@ -49,7 +51,42 @@ impl EventBus {
 // ----------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy)]
-pub struct Resized {
-    pub height: u32,
-    pub width: u32,
+pub struct Exiting;
+
+impl Event for Exiting {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MemoryWarning;
+
+impl Event for MemoryWarning {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Resumed;
+
+impl Event for Resumed {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Suspended;
+
+impl Event for Suspended {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowFocused {
+    pub focused: bool,
 }
+
+impl Event for WindowFocused {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowOccluded {
+    pub occluded: bool,
+}
+
+impl Event for WindowOccluded {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowScaleChanged {
+    pub scale_factor: f64,
+}
+
+impl Event for WindowScaleChanged {}

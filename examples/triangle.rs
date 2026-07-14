@@ -73,8 +73,7 @@ impl ApplicationInstance for TriangleExample {
     }
 
     fn update(&mut self, ctx: &ApplicationContext, _dt: Duration) {
-        let view_proj =
-            self.projection.project(ctx.renderer.viewport()) * self.camera.view_matrix();
+        let view_proj = self.projection.project(ctx.viewport) * self.camera.view_matrix();
         ctx.renderer.set_camera(view_proj);
     }
 }

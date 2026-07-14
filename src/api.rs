@@ -4,8 +4,8 @@ use crate::{
     commands::{EngineCommand, EngineCommandWriter},
     config::{RuntimeConfig, WindowMode},
     events::EventBus,
-    platform::core::PlatformError,
-    renderer::{DrawCommand, PresentMode, RenderError, RenderPhase, RendererHandle},
+    platform::PlatformError,
+    renderer::{DrawCommand, PresentMode, RenderError, RenderPhase, RendererHandle, Viewport},
 };
 
 pub trait Application {
@@ -27,9 +27,10 @@ pub trait ApplicationInstance {
 
 pub struct ApplicationContext<'a> {
     commands: &'a EngineCommandWriter,
-    config: &'a RuntimeConfig,
+    pub config: &'a RuntimeConfig,
     pub events: &'a mut EventBus,
     pub renderer: &'a mut RendererHandle,
+    pub viewport: &'a Viewport,
 }
 
 impl<'a> ApplicationContext<'a> {
@@ -38,17 +39,15 @@ impl<'a> ApplicationContext<'a> {
         config: &'a RuntimeConfig,
         events: &'a mut EventBus,
         renderer: &'a mut RendererHandle,
+        viewport: &'a Viewport,
     ) -> Self {
         Self {
             commands,
             config,
             events,
             renderer,
+            viewport,
         }
-    }
-
-    pub fn config(&self) -> &RuntimeConfig {
-        self.config
     }
 
     pub fn request_exit(&self) {
