@@ -7,7 +7,7 @@ pub struct EventBus {
 }
 
 impl EventBus {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             buffers: HashMap::new(),
         }
