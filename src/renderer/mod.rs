@@ -49,6 +49,7 @@ pub(crate) trait RendererBackend {
         handle: TextureHandle,
         definition: TextureDefinition,
     ) -> Result<(), RenderError>;
+    fn reconfigure(&mut self);
     fn reserve_draw_capacity(&mut self, count: u64);
     fn resize(&mut self, width: u32, height: u32);
     fn set_camera(&mut self, view_proj: Mat4);
@@ -62,6 +63,10 @@ pub(crate) struct Renderer<B: RendererBackend> {
     phases: Vec<RenderPhase>,
     queue: RenderQueueReader,
     staged_draws: HashMap<RenderPhase, Vec<DrawCommand>>,
+}
+
+pub(crate) struct PreparedFrame {
+    draws_by_phase: Vec<(RenderPhase, Vec<DrawCommand>)>,
 }
 
 impl<B: RendererBackend> Renderer<B> {
@@ -84,7 +89,7 @@ impl<B: RendererBackend> Renderer<B> {
         })
     }
 
-    pub(crate) fn render<T>(&mut self, mut phased_draws: T) -> Result<(), RenderError>
+    pub(crate) fn prepare<T>(&mut self, mut phased_draws: T) -> Result<PreparedFrame, RenderError>
     where
         T: FnMut(&RenderPhase) -> Option<Vec<DrawCommand>>,
     {
@@ -118,15 +123,11 @@ impl<B: RendererBackend> Renderer<B> {
 
         self.backend.reserve_draw_capacity(total_draws);
 
-        let mut frame = self.backend.begin_frame()?;
+        Ok(PreparedFrame { draws_by_phase })
+    }
 
-        for (phase, cmds) in &draws_by_phase {
-            frame.execute_commands(phase, cmds)?;
-        }
-
-        frame.present_frame();
-
-        Ok(())
+    pub(crate) fn reconfigure(&mut self) {
+        self.backend.reconfigure();
     }
 
     pub(crate) fn resize(&mut self, width: u32, height: u32) {
@@ -143,6 +144,18 @@ impl<B: RendererBackend> Renderer<B> {
 
     pub(crate) fn shutdown(&mut self) {
         self.backend.shutdown();
+    }
+
+    pub(crate) fn submit(&mut self, prepared: &PreparedFrame) -> Result<(), RenderError> {
+        let mut frame = self.backend.begin_frame()?;
+
+        for (phase, cmds) in &prepared.draws_by_phase {
+            frame.execute_commands(phase, cmds)?;
+        }
+
+        frame.present_frame();
+
+        Ok(())
     }
 
     // ------------------------------------------------------------------------
@@ -262,6 +275,8 @@ mod tests {
             Ok(())
         }
 
+        fn reconfigure(&mut self) {}
+
         fn reserve_draw_capacity(&mut self, _count: u64) {}
 
         fn resize(&mut self, _width: u32, _height: u32) {}
@@ -298,9 +313,10 @@ mod tests {
         let (mut renderer, _writer) = renderer_with_phase(phase);
 
         let capture = capture();
-        renderer
-            .render(|candidate| (*candidate == phase).then(|| vec![mesh_draw(), mesh_draw()]))
+        let prepared = renderer
+            .prepare(|candidate| (*candidate == phase).then(|| vec![mesh_draw(), mesh_draw()]))
             .unwrap();
+        renderer.submit(&prepared).unwrap();
 
         let render = capture
             .find(|record| record.target == diag::RENDER && record.name == "render")
@@ -322,7 +338,8 @@ mod tests {
         ));
 
         let capture = capture();
-        renderer.render(|_| None).unwrap();
+        let prepared = renderer.prepare(|_| None).unwrap();
+        renderer.submit(&prepared).unwrap();
 
         let created = capture
             .find(|record| record.target == diag::ASSET && record.field_str("kind") == Some("mesh"))

@@ -292,6 +292,10 @@ impl<W: Window> RendererBackend for Renderer<W> {
             .create_texture(&self.device, &self.queue, handle, &definition)
     }
 
+    fn reconfigure(&mut self) {
+        self.configure_surface();
+    }
+
     fn reserve_draw_capacity(&mut self, count: u64) {
         self.model_pool.reserve(&self.device, count);
     }
