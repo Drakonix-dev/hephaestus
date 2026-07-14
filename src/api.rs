@@ -21,7 +21,7 @@ pub trait ApplicationInstance {
     fn handle_event(&mut self, _ctx: &ApplicationContext, _event: Event) {}
     fn update(&mut self, _ctx: &ApplicationContext, _dt: time::Duration) {}
     fn quit(&mut self) {}
-    fn render(&mut self, _phase: &RenderPhase) -> Option<Vec<DrawCommand>> {
+    fn render(&mut self, _phase: &RenderPhase, _alpha: f32) -> Option<Vec<DrawCommand>> {
         None
     }
 }
@@ -57,8 +57,8 @@ impl<'a> ApplicationContext<'a> {
         self.commands.push(EngineCommand::SetPresentMode(mode));
     }
 
-    pub fn set_tick_rate(&self, hz: u32) {
-        self.commands.push(EngineCommand::SetTickRate(hz));
+    pub fn set_tick_freq(&self, freq: time::Duration) {
+        self.commands.push(EngineCommand::SetTickFreq(freq));
     }
 
     pub fn set_window_mode(&self, mode: WindowMode) {

@@ -1,12 +1,4 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-        mpsc::{self, Receiver},
-    },
-    thread::{self, JoinHandle},
-    time,
-};
+use std::time;
 
 use winit::{
     application::ApplicationHandler,
@@ -59,13 +51,12 @@ struct AppState<A: Application> {
 }
 
 struct AppHandler<I: ApplicationInstance> {
+    accumulator: time::Duration,
+    cfg: RuntimeConfig,
     instance: I,
-    last_tick: time::Instant,
+    last_frame: time::Instant,
     renderer: Renderer<WgpuRenderer<Window>>,
     renderer_handle: RendererHandle,
-    runtime_config: RuntimeConfig,
-    simulation: JoinHandle<()>,
-    tick_rx: Receiver<()>,
 }
 
 impl<A: Application> AppState<A> {
@@ -102,11 +93,6 @@ impl<A: Application> AppState<A> {
         let backend = pollster::block_on(WgpuRenderer::new(&self.cfg, window))?;
         let renderer = Renderer::new(backend, &self.graph, reader)?;
 
-        let (tick_tx, tick_rx) = mpsc::channel();
-        let tick_rate_hz = Arc::new(AtomicU32::new(self.cfg.tick_rate_hz));
-
-        let simulation = spawn_simulation_ticker(tick_tx, tick_rate_hz.clone())?;
-
         let runtime_config = RuntimeConfig::from(&self.cfg);
         let instance = self.app.create(&ApplicationContext::new(
             &self.engine_writer,
@@ -115,13 +101,12 @@ impl<A: Application> AppState<A> {
         ));
 
         self.handler = Some(AppHandler {
+            accumulator: time::Duration::from_nanos(0),
+            cfg: runtime_config,
             instance,
-            last_tick: time::Instant::now(),
+            last_frame: time::Instant::now(),
             renderer,
             renderer_handle,
-            runtime_config,
-            simulation,
-            tick_rx,
         });
 
         Ok(())
@@ -134,29 +119,34 @@ impl<A: Application> AppState<A> {
 
         let _frame = tracing::info_span!(target: diag::FRAME, "frame").entered();
 
-        while handler.tick_rx.try_recv().is_ok() {
-            let now = time::Instant::now();
-            let dt = now - handler.last_tick;
-            handler.last_tick = now;
+        let ctx = ApplicationContext::new(
+            &self.engine_writer,
+            &handler.cfg,
+            &mut handler.renderer_handle,
+        );
 
-            let _tick = tracing::debug_span!(
-                target: diag::SIM,
-                "update",
-                dt_us = dt.as_micros() as u64,
-            )
-            .entered();
+        let current_frame = time::Instant::now();
+        handler.accumulator += current_frame.duration_since(handler.last_frame);
+        handler.last_frame = current_frame;
+        let mut tick_count = 0;
 
-            let ctx = ApplicationContext::new(
-                &self.engine_writer,
-                &handler.runtime_config,
-                &mut handler.renderer_handle,
-            );
-            handler.instance.update(&ctx, dt);
+        while handler.accumulator >= handler.cfg.tick_freq {
+            handler.accumulator -= handler.cfg.tick_freq;
+            tick_count += 1;
+
+            let _update = tracing::debug_span!(target: diag::FRAME, "updating game simulation", tick = tick_count).entered();
+            handler.instance.update(&ctx, handler.cfg.tick_freq);
         }
+
+        let alpha = if handler.accumulator.is_zero() {
+            0.0
+        } else {
+            handler.accumulator.as_secs_f32() / handler.cfg.tick_freq.as_secs_f32()
+        };
 
         let prepared = match handler
             .renderer
-            .prepare(|phase| handler.instance.render(phase))
+            .prepare(|phase| handler.instance.render(phase, alpha))
         {
             Ok(prepared) => prepared,
             Err(err) => {
@@ -201,7 +191,7 @@ impl<A: Application> AppState<A> {
 
         let ctx = ApplicationContext::new(
             &self.engine_writer,
-            &handler.runtime_config,
+            &handler.cfg,
             &mut handler.renderer_handle,
         );
         handler
@@ -221,8 +211,8 @@ impl<A: Application> ApplicationHandler for AppState<A> {
                     self.cfg.present_mode = mode;
                     dirty = true;
                 }
-                EngineCommand::SetTickRate(hz) => {
-                    self.cfg.tick_rate_hz = hz.max(1);
+                EngineCommand::SetTickFreq(freq) => {
+                    self.cfg.tick_freq = freq.max(time::Duration::from_nanos(1));
                     dirty = true;
                 }
                 EngineCommand::SetWindowMode(mode) => {
@@ -240,13 +230,11 @@ impl<A: Application> ApplicationHandler for AppState<A> {
             return;
         };
 
-        handler.runtime_config = RuntimeConfig::from(&self.cfg);
+        handler.cfg = RuntimeConfig::from(&self.cfg);
         handler
             .renderer
-            .set_fullscreen(handler.runtime_config.window_mode == WindowMode::BorderlessFullscreen);
-        handler
-            .renderer
-            .set_present_mode(handler.runtime_config.present_mode);
+            .set_fullscreen(handler.cfg.window_mode == WindowMode::BorderlessFullscreen);
+        handler.renderer.set_present_mode(handler.cfg.present_mode);
     }
 
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
@@ -258,9 +246,6 @@ impl<A: Application> ApplicationHandler for AppState<A> {
 
         handler.instance.quit();
         handler.renderer.shutdown();
-
-        drop(handler.tick_rx);
-        let _ = handler.simulation.join();
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -281,39 +266,6 @@ impl<A: Application> ApplicationHandler for AppState<A> {
             _ => {}
         }
     }
-}
-
-fn spawn_simulation_ticker(
-    tx: mpsc::Sender<()>,
-    tick_rate_hz: Arc<AtomicU32>,
-) -> Result<thread::JoinHandle<()>, PlatformError> {
-    let handle = thread::Builder::new()
-        .name("hephaestus-ticker".to_owned())
-        .spawn(move || {
-            let mut last = time::Instant::now();
-            let mut tick: u64 = 0;
-
-            loop {
-                let hz = tick_rate_hz.load(Ordering::Relaxed).max(1);
-                let timestep = time::Duration::from_secs_f64(1.0 / hz as f64);
-
-                let now = time::Instant::now();
-                if now - last >= timestep {
-                    last = now;
-
-                    if tx.send(()).is_err() {
-                        break;
-                    }
-
-                    tracing::trace!(target: diag::SIM, tick, "tick");
-                    tick += 1;
-                }
-
-                thread::sleep(time::Duration::from_millis(1));
-            }
-        })?;
-
-    Ok(handle)
 }
 
 impl core::HasWindowInfo for Window {
