@@ -203,14 +203,17 @@ impl<A: Application> ApplicationHandler for AppState<A> {
             match cmd {
                 EngineCommand::RequestExit => event_loop.exit(),
                 EngineCommand::SetPresentMode(mode) => {
+                    self.events.publish(events::PresentModeChanged { mode });
                     self.cfg.present_mode = mode;
                     dirty = true;
                 }
                 EngineCommand::SetTickFreq(freq) => {
+                    self.events.publish(events::TickFrequencyChanged { freq });
                     self.cfg.tick_freq = freq.max(time::Duration::from_nanos(1));
                     dirty = true;
                 }
                 EngineCommand::SetWindowMode(mode) => {
+                    self.events.publish(events::WindowModeChanged { mode });
                     self.cfg.window_mode = mode;
                     dirty = true;
                 }
