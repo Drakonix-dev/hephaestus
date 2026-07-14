@@ -36,6 +36,7 @@ pub struct Quat(pub(crate) glam::Quat);
 
 wrap_fns!(Quat, glam::Quat, {
     fn from_axis_angle(axis: Vec3, angle: f32) -> Self;
+    fn slerp(self, end: Self, s: f32) -> Self;
 });
 impl_default!(Quat, glam::Quat::IDENTITY);
 
@@ -45,6 +46,7 @@ pub struct Vec2(pub(crate) glam::Vec2);
 
 wrap_fns!(Vec2, glam::Vec2, {
     fn new(x: f32, y: f32) -> Self;
+    fn lerp(self, rhs: Self, s: f32) -> Self;
 });
 impl_default!(Vec2, glam::Vec2::ZERO);
 
@@ -54,9 +56,33 @@ pub struct Vec3(pub(crate) glam::Vec3);
 
 wrap_fns!(Vec3, glam::Vec3, {
     fn new(x: f32, y: f32, z: f32) -> Self;
+    fn lerp(self, rhs: Self, s: f32) -> Self;
     fn normalize(self) -> Self;
 });
 impl_default!(Vec3, glam::Vec3::ZERO);
+
+pub struct Interpolated<T> {
+    curr: T,
+    prev: T,
+}
+
+impl<T: Copy> Interpolated<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            curr: value,
+            prev: value,
+        }
+    }
+
+    pub fn current(&self) -> T {
+        self.curr
+    }
+
+    pub fn set(&mut self, value: T) {
+        self.prev = self.curr;
+        self.curr = value;
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Transform2D {
@@ -82,17 +108,15 @@ pub struct Transform3D {
     pub scale: Vec3,
 }
 
-impl Default for Transform3D {
-    fn default() -> Self {
+impl Transform3D {
+    pub fn lerp(&self, other: &Self, alpha: f32) -> Self {
         Self {
-            position: Vec3::default(),
-            rotation: Quat::default(),
-            scale: Vec3::new(1.0, 1.0, 1.0),
+            position: self.position.lerp(other.position, alpha),
+            rotation: self.rotation.slerp(other.rotation, alpha),
+            scale: self.scale.lerp(other.scale, alpha),
         }
     }
-}
 
-impl Transform3D {
     pub fn matrix(&self) -> Mat4 {
         Mat4::from_scale_rotation_translation(
             self.scale.0.into(),
@@ -103,5 +127,21 @@ impl Transform3D {
 
     pub fn view_matrix(&self) -> Mat4 {
         Mat4::from_rotation_translation(self.rotation, self.position).inverse()
+    }
+}
+
+impl Default for Transform3D {
+    fn default() -> Self {
+        Self {
+            position: Vec3::default(),
+            rotation: Quat::default(),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+        }
+    }
+}
+
+impl Interpolated<Transform3D> {
+    pub fn sample(&self, alpha: f32) -> Transform3D {
+        self.prev.lerp(&self.curr, alpha)
     }
 }
