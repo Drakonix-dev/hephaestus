@@ -30,6 +30,7 @@ pub struct ApplicationContext<'a> {
     config: &'a RuntimeConfig,
     pub events: &'a mut EventBus,
     pub renderer: &'a mut RendererHandle,
+    pub viewport: &'a Viewport,
 }
 
 impl<'a> ApplicationContext<'a> {
@@ -38,17 +39,15 @@ impl<'a> ApplicationContext<'a> {
         config: &'a RuntimeConfig,
         events: &'a mut EventBus,
         renderer: &'a mut RendererHandle,
+        viewport: &'a Viewport,
     ) -> Self {
         Self {
             commands,
             config,
             events,
             renderer,
+            viewport,
         }
-    }
-
-    pub fn config(&self) -> &RuntimeConfig {
-        self.config
     }
 
     pub fn request_exit(&self) {

@@ -56,6 +56,7 @@ pub(crate) trait RendererBackend {
     fn set_fullscreen(&mut self, enabled: bool);
     fn set_present_mode(&mut self, mode: PresentMode);
     fn shutdown(&mut self);
+    fn viewport(&self) -> Viewport;
 }
 
 pub(crate) struct Renderer<B: RendererBackend> {
@@ -156,6 +157,10 @@ impl<B: RendererBackend> Renderer<B> {
         frame.present_frame();
 
         Ok(())
+    }
+
+    pub(crate) fn viewport(&self) -> Viewport {
+        self.backend.viewport()
     }
 
     // ------------------------------------------------------------------------
@@ -288,6 +293,10 @@ mod tests {
         fn set_present_mode(&mut self, _mode: PresentMode) {}
 
         fn shutdown(&mut self) {}
+
+        fn viewport(&self) -> Viewport {
+            Viewport::new(1, 1)
+        }
     }
 
     fn mesh_draw() -> DrawCommand {

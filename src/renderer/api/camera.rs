@@ -9,7 +9,7 @@ pub enum Projection {
 }
 
 impl Projection {
-    pub fn project(&self, viewport: Viewport) -> Mat4 {
+    pub fn project(&self, viewport: &Viewport) -> Mat4 {
         match self {
             Projection::Perspective(p) => {
                 view::perspective(p.fovy, viewport.aspect_ratio(), p.near, p.far)

@@ -2,12 +2,12 @@ use std::time;
 
 use winit::{
     application::ApplicationHandler,
+    dpi::PhysicalSize,
     event::{DeviceEvent, DeviceId, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     window::{Window, WindowId},
 };
 
-use super::core;
 use crate::{
     Application, ApplicationContext, ApplicationInstance, EngineError,
     commands::{EngineCommand, EngineCommandReader, EngineCommandWriter, engine_command_channel},
@@ -86,11 +86,8 @@ impl<A: Application> AppState<A> {
             Err(err) => return Err(PlatformError::from(err).into()),
         };
 
-        let initial_size = window.inner_size();
-        let viewport = Viewport::new(initial_size.width, initial_size.height);
-
         let (writer, reader) = render_queue_channel();
-        let mut renderer_handle = RendererHandle::new(writer, viewport);
+        let mut renderer_handle = RendererHandle::new(writer);
 
         let backend = pollster::block_on(WgpuRenderer::new(&self.cfg, window))?;
         let renderer = Renderer::new(backend, &self.graph, reader)?;
@@ -101,6 +98,7 @@ impl<A: Application> AppState<A> {
             &runtime_config,
             &mut self.events,
             &mut renderer_handle,
+            &renderer.viewport(),
         ));
 
         self.handler = Some(AppHandler {
@@ -122,11 +120,13 @@ impl<A: Application> AppState<A> {
 
         let _frame = tracing::info_span!(target: diag::FRAME, "frame").entered();
 
+        let viewport = handler.renderer.viewport();
         let ctx = ApplicationContext::new(
             &self.engine_writer,
             &handler.cfg,
             &mut self.events,
             &mut handler.renderer_handle,
+            &viewport,
         );
 
         let current_frame = time::Instant::now();
@@ -238,6 +238,8 @@ impl<A: Application> ApplicationHandler for AppState<A> {
     fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
+        self.events.publish(events::Exiting);
+
         let Some(mut handler) = self.handler.take() else {
             return;
         };
@@ -246,7 +248,13 @@ impl<A: Application> ApplicationHandler for AppState<A> {
         handler.renderer.shutdown();
     }
 
+    fn memory_warning(&mut self, _: &ActiveEventLoop) {
+        self.events.publish(events::MemoryWarning);
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.events.publish(events::Resumed);
+
         if self.handler.is_some() {
             return;
         }
@@ -256,22 +264,40 @@ impl<A: Application> ApplicationHandler for AppState<A> {
         }
     }
 
+    fn suspended(&mut self, _: &ActiveEventLoop) {
+        self.events.publish(events::Suspended);
+    }
+
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
+            WindowEvent::Focused(focused) => self.events.publish(events::WindowFocused { focused }),
+            WindowEvent::Occluded(occluded) => {
+                self.events.publish(events::WindowOccluded { occluded })
+            }
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::Resized(size) => self.resize(size),
+            WindowEvent::ScaleFactorChanged {
+                scale_factor,
+                mut inner_size_writer,
+            } => {
+                if let Some(handler) = self.handler.as_ref() {
+                    let view = handler.renderer.viewport();
+                    let _ = inner_size_writer.request_inner_size(view.into());
+                    self.resize(view.into());
+                }
+
+                self.events
+                    .publish(events::WindowScaleChanged { scale_factor });
+            }
             _ => {}
         }
     }
 }
 
-impl core::HasWindowInfo for Window {
-    fn get_window_info(&self) -> core::WindowInfo {
-        core::WindowInfo {
-            height: self.inner_size().height,
-            width: self.inner_size().width,
-        }
+impl platform::HasViewport for Window {
+    fn get_viewport(&self) -> Viewport {
+        Viewport::new(self.inner_size().width, self.inner_size().height)
     }
 
     fn request_redraw(&self) {
@@ -281,6 +307,21 @@ impl core::HasWindowInfo for Window {
     fn set_fullscreen_enabled(&self, enabled: bool) {
         let fullscreen = enabled.then_some(winit::window::Fullscreen::Borderless(None));
         self.set_fullscreen(fullscreen);
+    }
+}
+
+impl From<PhysicalSize<u32>> for Viewport {
+    fn from(size: PhysicalSize<u32>) -> Self {
+        Self::new(size.width, size.height)
+    }
+}
+
+impl From<Viewport> for PhysicalSize<u32> {
+    fn from(view: Viewport) -> Self {
+        Self {
+            height: view.height(),
+            width: view.width(),
+        }
     }
 }
 
