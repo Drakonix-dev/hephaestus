@@ -3,7 +3,7 @@ use std::time;
 use crate::{
     commands::{EngineCommand, EngineCommandWriter},
     config::{RuntimeConfig, WindowMode},
-    events::Event,
+    events::EventBus,
     platform::core::PlatformError,
     renderer::{DrawCommand, PresentMode, RenderError, RenderPhase, RendererHandle},
 };
@@ -18,7 +18,6 @@ pub trait Application {
 
 pub trait ApplicationInstance {
     fn handle_error(&mut self, _err: impl Into<EngineError>) {}
-    fn handle_event(&mut self, _ctx: &ApplicationContext, _event: Event) {}
     fn update(&mut self, _ctx: &ApplicationContext, _dt: time::Duration) {}
     fn quit(&mut self) {}
     fn render(&mut self, _phase: &RenderPhase, _alpha: f32) -> Option<Vec<DrawCommand>> {
@@ -29,6 +28,7 @@ pub trait ApplicationInstance {
 pub struct ApplicationContext<'a> {
     commands: &'a EngineCommandWriter,
     config: &'a RuntimeConfig,
+    pub events: &'a mut EventBus,
     pub renderer: &'a mut RendererHandle,
 }
 
@@ -36,11 +36,13 @@ impl<'a> ApplicationContext<'a> {
     pub(crate) fn new(
         commands: &'a EngineCommandWriter,
         config: &'a RuntimeConfig,
+        events: &'a mut EventBus,
         renderer: &'a mut RendererHandle,
     ) -> Self {
         Self {
             commands,
             config,
+            events,
             renderer,
         }
     }
