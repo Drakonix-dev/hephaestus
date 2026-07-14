@@ -70,7 +70,7 @@ impl TriangleExample {
 }
 
 impl ApplicationInstance for TriangleExample {
-    fn render(&mut self, phase: &RenderPhase) -> Option<Vec<DrawCommand>> {
+    fn render(&mut self, phase: &RenderPhase, _alpha: f32) -> Option<Vec<DrawCommand>> {
         if *phase != TRIANGLE_PHASE {
             return None;
         }

@@ -3,7 +3,7 @@ use std::time::Duration;
 use hephaestus::{
     ApplicationContext, ApplicationInstance,
     config::EngineConfig,
-    math::{Quat, Transform3D, Vec3},
+    math::{Interpolated, Quat, Transform3D, Vec3},
     renderer::{
         BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MaterialParams,
         MaterialUniforms, MeshDefinition, MeshHandle, PerspectiveProjection, Projection,
@@ -17,7 +17,7 @@ const ROTATION_SPEED: f32 = 1.0;
 struct CubeExample {
     angle: f32,
     camera: Transform3D,
-    cube: Transform3D,
+    cube: Interpolated<Transform3D>,
     material: MaterialHandle,
     mesh: MeshHandle,
     projection: Projection,
@@ -56,7 +56,7 @@ impl CubeExample {
         Self {
             angle: 0.0,
             camera,
-            cube: Transform3D::default(),
+            cube: Interpolated::new(Transform3D::default()),
             material,
             mesh,
             projection,
@@ -65,7 +65,7 @@ impl CubeExample {
 }
 
 impl ApplicationInstance for CubeExample {
-    fn render(&mut self, phase: &RenderPhase) -> Option<Vec<DrawCommand>> {
+    fn render(&mut self, phase: &RenderPhase, alpha: f32) -> Option<Vec<DrawCommand>> {
         if *phase != CUBE_PHASE {
             return None;
         }
@@ -73,14 +73,16 @@ impl ApplicationInstance for CubeExample {
         Some(vec![DrawCommand::Mesh(DrawMesh {
             mesh: self.mesh,
             material: self.material,
-            transform: Transform::Transform3D(self.cube),
+            transform: Transform::Transform3D(self.cube.sample(alpha)),
         })])
     }
 
     fn update(&mut self, ctx: &ApplicationContext, dt: Duration) {
         self.angle += ROTATION_SPEED * dt.as_secs_f32();
         let axis = Vec3::new(1.0, 1.0, 1.0).normalize();
-        self.cube.rotation = Quat::from_axis_angle(axis, self.angle);
+        let mut cube = self.cube.current();
+        cube.rotation = Quat::from_axis_angle(axis, self.angle);
+        self.cube.set(cube);
 
         let view_proj =
             self.projection.project(ctx.renderer.viewport()) * self.camera.view_matrix();
