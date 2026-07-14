@@ -14,7 +14,7 @@ use crate::{
     config::{EngineConfig, RuntimeConfig, WindowMode},
     diagnostics::diag,
     events::{self, EventBus},
-    platform::core::PlatformError,
+    platform::{HasViewport, PlatformError},
     renderer::{
         FrameError, RenderError, RenderGraph, Renderer, RendererHandle, Viewport,
         backend::wgpu::Renderer as WgpuRenderer, render_queue_channel,
@@ -185,16 +185,13 @@ impl<A: Application> AppState<A> {
         let width = size.width.max(1);
         let height = size.height.max(1);
 
-        self.events.publish(events::Resized { height, width });
+        self.events.publish(Viewport::new(width, height));
 
         let Some(handler) = self.handler.as_mut() else {
             return;
         };
 
         handler.renderer.resize(width, height);
-        handler
-            .renderer_handle
-            .set_viewport(Viewport::new(width, height));
     }
 }
 
@@ -295,7 +292,7 @@ impl<A: Application> ApplicationHandler for AppState<A> {
     }
 }
 
-impl platform::HasViewport for Window {
+impl HasViewport for Window {
     fn get_viewport(&self) -> Viewport {
         Viewport::new(self.inner_size().width, self.inner_size().height)
     }
