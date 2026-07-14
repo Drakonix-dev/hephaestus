@@ -13,7 +13,7 @@ use crate::{
     commands::{EngineCommand, EngineCommandReader, EngineCommandWriter, engine_command_channel},
     config::{EngineConfig, RuntimeConfig, WindowMode},
     diagnostics::diag,
-    events::Event,
+    events::{self, EventBus},
     platform::core::PlatformError,
     renderer::{
         FrameError, RenderError, RenderGraph, Renderer, RendererHandle, Viewport,
@@ -46,6 +46,7 @@ struct AppState<A: Application> {
     cfg: EngineConfig,
     engine_reader: EngineCommandReader,
     engine_writer: EngineCommandWriter,
+    events: EventBus,
     graph: RenderGraph,
     handler: Option<AppHandler<A::Instance>>,
 }
@@ -68,6 +69,7 @@ impl<A: Application> AppState<A> {
             cfg,
             engine_reader,
             engine_writer,
+            events: EventBus::new(),
             graph,
             handler: None,
         }
@@ -97,6 +99,7 @@ impl<A: Application> AppState<A> {
         let instance = self.app.create(&ApplicationContext::new(
             &self.engine_writer,
             &runtime_config,
+            &mut self.events,
             &mut renderer_handle,
         ));
 
@@ -122,6 +125,7 @@ impl<A: Application> AppState<A> {
         let ctx = ApplicationContext::new(
             &self.engine_writer,
             &handler.cfg,
+            &mut self.events,
             &mut handler.renderer_handle,
         );
 
@@ -130,6 +134,7 @@ impl<A: Application> AppState<A> {
         handler.last_frame = current_frame;
         let mut tick_count = 0;
 
+        ctx.events.swap_all();
         while handler.accumulator >= handler.cfg.tick_freq {
             handler.accumulator -= handler.cfg.tick_freq;
             tick_count += 1;
@@ -177,26 +182,19 @@ impl<A: Application> AppState<A> {
     }
 
     fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
+        let width = size.width.max(1);
+        let height = size.height.max(1);
+
+        self.events.publish(events::Resized { height, width });
+
         let Some(handler) = self.handler.as_mut() else {
             return;
         };
-
-        let width = size.width.max(1);
-        let height = size.height.max(1);
 
         handler.renderer.resize(width, height);
         handler
             .renderer_handle
             .set_viewport(Viewport::new(width, height));
-
-        let ctx = ApplicationContext::new(
-            &self.engine_writer,
-            &handler.cfg,
-            &mut handler.renderer_handle,
-        );
-        handler
-            .instance
-            .handle_event(&ctx, Event::Resized(width, height));
     }
 }
 
