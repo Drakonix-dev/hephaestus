@@ -1,6 +1,10 @@
-use std::{any::TypeId, collections::HashMap};
+use std::{any::TypeId, collections::HashMap, time};
 
-use crate::buffers::{Buffer, Cursor, ErasedBuffer};
+use crate::{
+    buffers::{Buffer, Cursor, ErasedBuffer},
+    config::WindowMode,
+    renderer::PresentMode,
+};
 
 pub trait Event: 'static {}
 
@@ -61,6 +65,13 @@ pub struct MemoryWarning;
 impl Event for MemoryWarning {}
 
 #[derive(Debug, Clone, Copy)]
+pub struct PresentModeChanged {
+    pub mode: PresentMode,
+}
+
+impl Event for PresentModeChanged {}
+
+#[derive(Debug, Clone, Copy)]
 pub struct Resumed;
 
 impl Event for Resumed {}
@@ -71,11 +82,25 @@ pub struct Suspended;
 impl Event for Suspended {}
 
 #[derive(Debug, Clone, Copy)]
+pub struct TickFrequencyChanged {
+    pub freq: time::Duration,
+}
+
+impl Event for TickFrequencyChanged {}
+
+#[derive(Debug, Clone, Copy)]
 pub struct WindowFocused {
     pub focused: bool,
 }
 
 impl Event for WindowFocused {}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WindowModeChanged {
+    pub mode: WindowMode,
+}
+
+impl Event for WindowModeChanged {}
 
 #[derive(Debug, Clone, Copy)]
 pub struct WindowOccluded {
