@@ -1,6 +1,7 @@
 pub use api::{Application, ApplicationContext, ApplicationInstance, EngineError};
 pub use platform::PlatformError;
 
+pub mod assets;
 pub mod buffers;
 pub mod commands;
 pub mod config;
