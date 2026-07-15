@@ -21,6 +21,10 @@ impl Registry {
         }
     }
 
+    pub fn add<T: Asset>(&mut self, asset: T) -> Handle<T> {
+        erased_entry!(self.slots, SlotRegistry, T).insert(SlotState::Ready(asset))
+    }
+
     pub(crate) fn get<T: Asset>(&self, handle: Handle<T>) -> Result<&SlotState<T>, AssetError> {
         erased_get!(self.slots, SlotRegistry, T).map_or_else(
             || {
@@ -33,8 +37,8 @@ impl Registry {
         )
     }
 
-    pub fn register<T: Asset>(&mut self) -> Handle<T> {
-        erased_entry!(self.slots, SlotRegistry, T).insert()
+    pub fn load<T: Asset>(&mut self) -> Handle<T> {
+        erased_entry!(self.slots, SlotRegistry, T).insert(SlotState::Pending)
     }
 }
 
@@ -61,10 +65,10 @@ struct Slot<T> {
 }
 
 impl<T> Slot<T> {
-    fn new() -> Self {
+    fn new(state: SlotState<T>) -> Self {
         Self {
             generation: 0,
-            state: SlotState::Pending,
+            state,
         }
     }
 }
@@ -109,12 +113,12 @@ impl<T> SlotRegistry<T> {
         Ok(&slot.state)
     }
 
-    pub(crate) fn insert(&mut self) -> Handle<T> {
+    pub(crate) fn insert(&mut self, state: SlotState<T>) -> Handle<T> {
         if let Some(id) = self.free.pop() {
             return Handle::new(id, self.items[id].generation);
         }
 
-        self.items.push(Slot::new());
+        self.items.push(Slot::new(state));
         Handle::new(self.items.len() - 1, 0)
     }
 
