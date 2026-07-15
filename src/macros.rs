@@ -28,6 +28,9 @@ pub(crate) use define_handle;
 
 macro_rules! erased_downcast {
     ($inner:ident $(, { $($method:ident($($arg:ident: $ty:ty),*) -> $ret:ty);* $(;)? })?) => {
+        erased_downcast!($inner<T> $(, { $($method($($arg: $ty),*) -> $ret);* })?);
+    };
+    ($inner:ident<$($tp:ident),+> $(, { $($method:ident($($arg:ident: $ty:ty),*) -> $ret:ty);* $(;)? })?) => {
         use paste::paste;
 
         paste! {
@@ -37,7 +40,7 @@ macro_rules! erased_downcast {
                 $($(fn $method(&mut self $(, $arg: $ty)*) -> $ret;)*)?
             }
 
-            impl<T: 'static> [< Erased $inner >] for $inner<T> {
+            impl<$($tp: 'static),+> [< Erased $inner >] for $inner<$($tp),+> {
                 fn as_any(&self) -> &dyn std::any::Any {
                     self
                 }
@@ -57,22 +60,22 @@ macro_rules! erased_downcast {
 pub(crate) use erased_downcast;
 
 macro_rules! erased_get {
-    ($erased:expr, $outer:ident, $inner:ty) => {
+    ($erased:expr, $outer:ident, $key:ty $(, $extra:ty)*) => {
         $erased
-            .get(&TypeId::of::<$inner>())
-            .and_then(|o| o.as_any().downcast_ref::<$outer<$inner>>())
+            .get(&TypeId::of::<$key>())
+            .and_then(|o| o.as_any().downcast_ref::<$outer<$key $(, $extra)*>>())
     };
 }
 
 pub(crate) use erased_get;
 
 macro_rules! erased_entry {
-    ($erased:expr, $outer:ident, $inner:ty) => {
+    ($erased:expr, $outer:ident, $key:ty $(, $extra:ty)*) => {
         $erased
-            .entry(TypeId::of::<$inner>())
-            .or_insert_with(|| Box::new($outer::<$inner>::new()))
+            .entry(TypeId::of::<$key>())
+            .or_insert_with(|| Box::new($outer::<$key $(, $extra)*>::new()))
             .as_any_mut()
-            .downcast_mut::<$outer<$inner>>()
+            .downcast_mut::<$outer<$key $(, $extra)*>>()
             .expect("TypeId keyed the wrong registry")
     };
 }

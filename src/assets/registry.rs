@@ -22,11 +22,11 @@ impl Registry {
     }
 
     pub fn add<T: Asset>(&mut self, asset: T) -> Handle<T> {
-        erased_entry!(self.slots, SlotRegistry, T).insert(SlotState::Ready(asset))
+        erased_entry!(self.slots, SlotRegistry, T, T).insert(SlotState::Ready(asset))
     }
 
     pub(crate) fn get<T: Asset>(&self, handle: Handle<T>) -> Result<&SlotState<T>, AssetError> {
-        erased_get!(self.slots, SlotRegistry, T).map_or_else(
+        erased_get!(self.slots, SlotRegistry, T, T).map_or_else(
             || {
                 Err(AssetError::NotFound {
                     id: handle.id,
@@ -38,7 +38,7 @@ impl Registry {
     }
 
     pub fn load<T: Asset>(&mut self) -> Handle<T> {
-        erased_entry!(self.slots, SlotRegistry, T).insert(SlotState::Pending)
+        erased_entry!(self.slots, SlotRegistry, T, T).insert(SlotState::Pending)
     }
 }
 
@@ -79,25 +79,27 @@ pub enum SlotState<T> {
     Ready(T),
 }
 
-pub(crate) struct SlotRegistry<T> {
+pub(crate) struct SlotRegistry<Id, V> {
     free: Vec<usize>,
-    items: Vec<Slot<T>>,
+    items: Vec<Slot<V>>,
+    _marker: PhantomData<fn() -> Id>,
 }
 
-erased_downcast!(SlotRegistry);
+erased_downcast!(SlotRegistry<Id, V>);
 
-impl<T> SlotRegistry<T> {
+impl<Id, V> SlotRegistry<Id, V> {
     pub(crate) fn new() -> Self {
         Self {
             free: Vec::new(),
             items: Vec::new(),
+            _marker: PhantomData,
         }
     }
 
-    pub(crate) fn get(&self, handle: &Handle<T>) -> Result<&SlotState<T>, AssetError> {
+    pub(crate) fn get(&self, handle: &Handle<Id>) -> Result<&SlotState<V>, AssetError> {
         if handle.id >= self.items.len() {
             return Err(AssetError::NotFound {
-                t: type_name::<T>().to_string(),
+                t: type_name::<Id>().to_string(),
                 id: handle.id,
             });
         }
@@ -105,7 +107,7 @@ impl<T> SlotRegistry<T> {
         let slot = &self.items[handle.id];
         if slot.generation != handle.generation {
             return Err(AssetError::NotFound {
-                t: type_name::<T>().to_string(),
+                t: type_name::<Id>().to_string(),
                 id: handle.id,
             });
         }
@@ -113,7 +115,7 @@ impl<T> SlotRegistry<T> {
         Ok(&slot.state)
     }
 
-    pub(crate) fn insert(&mut self, state: SlotState<T>) -> Handle<T> {
+    pub(crate) fn insert(&mut self, state: SlotState<V>) -> Handle<Id> {
         if let Some(id) = self.free.pop() {
             return Handle::new(id, self.items[id].generation);
         }
@@ -122,7 +124,7 @@ impl<T> SlotRegistry<T> {
         Handle::new(self.items.len() - 1, 0)
     }
 
-    pub(crate) fn release(&mut self, handle: Handle<T>) -> Result<(), AssetError> {
+    pub(crate) fn release(&mut self, handle: Handle<Id>) -> Result<(), AssetError> {
         let _ = self.get(&handle)?;
 
         self.items[handle.id].generation += 1;
@@ -134,8 +136,8 @@ impl<T> SlotRegistry<T> {
 
     pub(crate) fn update(
         &mut self,
-        handle: Handle<T>,
-        state: SlotState<T>,
+        handle: Handle<Id>,
+        state: SlotState<V>,
     ) -> Result<(), AssetError> {
         let _ = self.get(&handle)?;
         self.items[handle.id].state = state;
