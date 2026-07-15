@@ -3,7 +3,6 @@ mod registry;
 use std::{
     any::{TypeId, type_name},
     collections::HashMap,
-    error::Error,
 };
 
 use crate::assets::registry::{ErasedSlotRegistry, Handle, SlotRegistry, SlotState};
@@ -11,19 +10,8 @@ use crate::assets::registry::{ErasedSlotRegistry, Handle, SlotRegistry, SlotStat
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 enum AssetError {
-    #[error("asset failed to load: {t}x{id}")]
-    LoadingFailed {
-        id: usize,
-        #[source]
-        source: Box<dyn Error + Send + Sync>,
-        t: String,
-    },
-
     #[error("asset not found: {t}x{id}")]
     NotFound { id: usize, t: String },
-
-    #[error("asset unavailable: {t}x{id}")]
-    Unavailable { id: usize, t: String },
 }
 
 pub trait Asset: 'static {}
@@ -39,9 +27,8 @@ impl Registry {
         }
     }
 
-    pub(crate) fn get<T: Asset>(&self, handle: Handle<T>) -> Result<&T, AssetError> {
-        let state = self
-            .slots
+    pub(crate) fn get<T: Asset>(&self, handle: Handle<T>) -> Result<&SlotState<T>, AssetError> {
+        self.slots
             .get(&TypeId::of::<T>())
             .and_then(|b| b.as_any().downcast_ref::<SlotRegistry<T>>())
             .map_or_else(
@@ -52,20 +39,7 @@ impl Registry {
                     })
                 },
                 |r| r.get(&handle),
-            )?;
-
-        match state {
-            SlotState::Failed(err) => Err(AssetError::LoadingFailed {
-                id: handle.id,
-                source: Box::new(err),
-                t: type_name::<T>().to_string(),
-            }),
-            SlotState::Pending => Err(AssetError::Unavailable {
-                id: handle.id,
-                t: type_name::<T>().to_string(),
-            }),
-            SlotState::Ready(asset) => Ok(&asset),
-        }
+            )
     }
 
     pub fn register<T: Asset>(&mut self) -> Handle<T> {
