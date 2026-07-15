@@ -11,7 +11,7 @@ pub mod math;
 pub mod renderer;
 
 pub(crate) mod channels;
-pub(crate) mod handles;
+pub(crate) mod macros;
 
 mod api;
 mod platform;

@@ -1,14 +1,41 @@
 use std::{
-    any::{Any, type_name},
+    any::{TypeId, type_name},
+    collections::HashMap,
     error::Error,
     marker::PhantomData,
 };
 
-use crate::assets::AssetError;
+use crate::{
+    assets::{Asset, AssetError},
+    macros::{erased_downcast, erased_entry, erased_get},
+};
 
-pub(crate) trait ErasedSlotRegistry {
-    fn as_any(&self) -> &dyn Any;
-    fn as_any_mut(&mut self) -> &mut dyn Any;
+pub struct Registry {
+    slots: HashMap<TypeId, Box<dyn ErasedSlotRegistry>>,
+}
+
+impl Registry {
+    pub(crate) fn new() -> Self {
+        Self {
+            slots: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn get<T: Asset>(&self, handle: Handle<T>) -> Result<&SlotState<T>, AssetError> {
+        erased_get!(self.slots, SlotRegistry, T).map_or_else(
+            || {
+                Err(AssetError::NotFound {
+                    id: handle.id,
+                    t: type_name::<T>().to_string(),
+                })
+            },
+            |r| r.get(&handle),
+        )
+    }
+
+    pub fn register<T: Asset>(&mut self) -> Handle<T> {
+        erased_entry!(self.slots, SlotRegistry, T).insert()
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -52,6 +79,8 @@ pub(crate) struct SlotRegistry<T> {
     free: Vec<usize>,
     items: Vec<Slot<T>>,
 }
+
+erased_downcast!(SlotRegistry);
 
 impl<T> SlotRegistry<T> {
     pub(crate) fn new() -> Self {
@@ -107,15 +136,5 @@ impl<T> SlotRegistry<T> {
         let _ = self.get(&handle)?;
         self.items[handle.id].state = state;
         Ok(())
-    }
-}
-
-impl<T: 'static> ErasedSlotRegistry for SlotRegistry<T> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
     }
 }

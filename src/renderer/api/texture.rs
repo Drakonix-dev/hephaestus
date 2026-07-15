@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::handles::define_handle;
+use crate::macros::define_handle;
 
 // TextureHandle defines a handle for a specific texture.
 define_handle!(TextureHandle);

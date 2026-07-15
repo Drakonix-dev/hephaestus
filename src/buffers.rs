@@ -1,10 +1,6 @@
-use std::{any::Any, marker::PhantomData, mem};
+use std::{marker::PhantomData, mem};
 
-pub(crate) trait ErasedBuffer: Any {
-    fn as_any(&self) -> &dyn Any;
-    fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn swap(&mut self);
-}
+use crate::macros::erased_downcast;
 
 pub(crate) struct Buffer<T> {
     count: u64,
@@ -12,6 +8,10 @@ pub(crate) struct Buffer<T> {
     oldest_id: u64,
     prev: Vec<T>,
 }
+
+erased_downcast!(Buffer, {
+    swap() -> ();
+});
 
 impl<T> Buffer<T> {
     pub(crate) fn new() -> Self {
@@ -49,20 +49,6 @@ impl<T> Buffer<T> {
         self.oldest_id += self.prev.len() as u64;
         mem::swap(&mut self.current, &mut self.prev);
         self.current.clear();
-    }
-}
-
-impl<T: 'static> ErasedBuffer for Buffer<T> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-    }
-
-    fn swap(&mut self) {
-        Buffer::swap(self)
     }
 }
 

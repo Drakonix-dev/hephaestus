@@ -1,6 +1,6 @@
 use std::{num::NonZeroU64, path::PathBuf};
 
-use crate::handles::define_handle;
+use crate::macros::define_handle;
 
 // ShaderHandle defines a handle for a specific shader.
 define_handle!(ShaderHandle);

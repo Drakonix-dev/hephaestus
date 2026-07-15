@@ -1,6 +1,9 @@
 use std::{any::TypeId, collections::HashMap};
 
-use crate::buffers::{Buffer, Cursor, ErasedBuffer};
+use crate::{
+    buffers::{Buffer, Cursor, ErasedBuffer},
+    macros::{erased_entry, erased_get},
+};
 
 pub trait Event: 'static {}
 
@@ -16,26 +19,15 @@ impl EventBus {
     }
 
     pub fn cursor<T: Event>(&self) -> Option<Cursor<T>> {
-        self.buffers
-            .get(&TypeId::of::<T>())
-            .and_then(|b| b.as_any().downcast_ref::<Buffer<T>>())
-            .map(|buf| buf.cursor())
+        erased_get!(self.buffers, Buffer, T).map(|buf| buf.cursor())
     }
 
     pub fn publish<T: Event>(&mut self, v: T) {
-        self.buffers
-            .entry(TypeId::of::<T>())
-            .or_insert_with(|| Box::new(Buffer::<T>::new()))
-            .as_any_mut()
-            .downcast_mut::<Buffer<T>>()
-            .expect("TypeId keyed the wrong buffer")
-            .publish(v)
+        erased_entry!(self.buffers, Buffer, T).publish(v)
     }
 
     pub fn read<'a, T: Event>(&'a self, cursor: &mut Cursor<T>) -> impl Iterator<Item = &'a T> {
-        self.buffers
-            .get(&TypeId::of::<T>())
-            .and_then(|b| b.as_any().downcast_ref::<Buffer<T>>())
+        erased_get!(self.buffers, Buffer, T)
             .map(|buf| buf.read(cursor))
             .into_iter()
             .flatten()
