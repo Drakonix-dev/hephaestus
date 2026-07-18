@@ -1,3 +1,5 @@
+pub mod rework;
+
 mod registry;
 
 pub trait Asset: 'static {}
