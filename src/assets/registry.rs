@@ -1,48 +1,12 @@
 use std::{
-    any::{TypeId, type_name},
-    collections::HashMap,
+    any::{Any, type_name},
     error::Error,
     marker::PhantomData,
 };
 
-use crate::{
-    assets::{Asset, AssetError},
-    macros::{erased_downcast, erased_entry, erased_get},
-};
+use crate::assets::{AssetError, AssetStatus};
 
-pub struct Registry {
-    slots: HashMap<TypeId, Box<dyn ErasedSlotRegistry>>,
-}
-
-impl Registry {
-    pub(crate) fn new() -> Self {
-        Self {
-            slots: HashMap::new(),
-        }
-    }
-
-    pub fn add<T: Asset>(&mut self, asset: T) -> Handle<T> {
-        erased_entry!(self.slots, SlotRegistry, T, T).insert(SlotState::Ready(asset))
-    }
-
-    pub(crate) fn get<T: Asset>(&self, handle: Handle<T>) -> Result<&SlotState<T>, AssetError> {
-        erased_get!(self.slots, SlotRegistry, T, T).map_or_else(
-            || {
-                Err(AssetError::NotFound {
-                    id: handle.id,
-                    t: type_name::<T>().to_string(),
-                })
-            },
-            |r| r.get(&handle),
-        )
-    }
-
-    pub fn load<T: Asset>(&mut self) -> Handle<T> {
-        erased_entry!(self.slots, SlotRegistry, T, T).insert(SlotState::Pending)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Handle<T> {
     pub(crate) generation: u64,
     pub(crate) id: usize,
@@ -50,7 +14,7 @@ pub struct Handle<T> {
 }
 
 impl<T> Handle<T> {
-    fn new(id: usize, generation: u64) -> Self {
+    pub(crate) fn new(id: usize, generation: u64) -> Self {
         Self {
             generation,
             id,
@@ -59,7 +23,19 @@ impl<T> Handle<T> {
     }
 }
 
-struct Slot<T> {
+impl<T> Clone for Handle<T> {
+    fn clone(&self) -> Self {
+        Self {
+            generation: self.generation.clone(),
+            id: self.id.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T> Copy for Handle<T> {}
+
+pub(crate) struct Slot<T> {
     generation: u64,
     state: SlotState<T>,
 }
@@ -73,21 +49,37 @@ impl<T> Slot<T> {
     }
 }
 
-pub enum SlotState<T> {
+pub(crate) enum SlotState<T> {
     Failed(Box<dyn Error + Send + Sync>),
     Pending,
     Ready(T),
 }
 
-pub(crate) struct SlotRegistry<Id, V> {
+impl<T> From<SlotState<T>> for AssetStatus {
+    fn from(state: SlotState<T>) -> Self {
+        match state {
+            SlotState::Failed(err) => AssetStatus::Failed(err.to_string()),
+            SlotState::Pending => AssetStatus::Pending,
+            SlotState::Ready(_) => AssetStatus::Ready,
+        }
+    }
+}
+
+pub(crate) trait ErasedRegistry: Any {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn insert_pending(&mut self) -> (usize, u64);
+    fn release(&mut self, id: usize, generation: u64) -> Result<(), AssetError>;
+    fn status(&self, id: usize, generation: u64) -> Result<AssetStatus, AssetError>;
+}
+
+pub(crate) struct Registry<Id, V> {
     free: Vec<usize>,
     items: Vec<Slot<V>>,
     _marker: PhantomData<fn() -> Id>,
 }
 
-erased_downcast!(SlotRegistry<Id, V>);
-
-impl<Id, V> SlotRegistry<Id, V> {
+impl<Id, V> Registry<Id, V> {
     pub(crate) fn new() -> Self {
         Self {
             free: Vec::new(),
@@ -144,3 +136,36 @@ impl<Id, V> SlotRegistry<Id, V> {
         Ok(())
     }
 }
+
+impl<Id: 'static, V: 'static> ErasedRegistry for Registry<Id, V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    fn insert_pending(&mut self) -> (usize, u64) {
+        let handle = self.insert(SlotState::Pending);
+        (handle.id, handle.generation)
+    }
+
+    fn release(&mut self, id: usize, generation: u64) -> Result<(), AssetError> {
+        self.release(Handle {
+            id,
+            generation,
+            _marker: PhantomData,
+        })
+    }
+
+    fn status(&self, id: usize, generation: u64) -> Result<AssetStatus, AssetError> {
+        self.get(&Handle {
+            id,
+            generation,
+            _marker: PhantomData,
+        })?
+        .into()
+    }
+}
+
