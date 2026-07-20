@@ -1,4 +1,4 @@
-use std::{any::Any, marker::PhantomData};
+use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use crate::assets::{
     Asset, AssetError, Handle, SourceFor,
@@ -7,15 +7,9 @@ use crate::assets::{
 
 pub(crate) trait ErasedLoader {
     fn parse<'a>(
-        &'a self,
+        self: Arc<Self>,
         raw: Box<dyn Any>,
-    ) -> Box<
-        dyn for<'b> FnOnce(
-                &'b (dyn Any + 'b),
-                &'b mut (dyn ErasedRegistry + 'b),
-            ) -> Result<(), AssetError>
-            + 'a,
-    >;
+    ) -> Box<dyn FnOnce(&(dyn Any), &mut (dyn ErasedRegistry)) -> Result<(), AssetError>>;
 }
 
 pub(crate) struct LoaderCell<A, S, L>(L, PhantomData<fn() -> (A, S)>);
@@ -30,18 +24,12 @@ impl<A, S, L> ErasedLoader for LoaderCell<A, S, L>
 where
     A: Asset,
     S: SourceFor<A>,
-    L: Loader<A, S>,
+    L: Loader<A, S> + 'static,
 {
-    fn parse<'a>(
-        &'a self,
+    fn parse(
+        self: Arc<Self>,
         raw: Box<dyn Any>,
-    ) -> Box<
-        dyn for<'b> FnOnce(
-                &'b (dyn Any + 'b),
-                &'b mut (dyn ErasedRegistry + 'b),
-            ) -> Result<(), AssetError>
-            + 'a,
-    > {
+    ) -> Box<dyn FnOnce(&(dyn Any), &mut (dyn ErasedRegistry)) -> Result<(), AssetError>> {
         let parsed = self.0.parse(
             *raw.downcast::<S::Raw>()
                 .expect("Mistyped raw for LoaderCell"),

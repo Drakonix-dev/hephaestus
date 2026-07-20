@@ -1,9 +1,10 @@
 pub(crate) mod loader;
+pub(crate) mod pool;
 pub(crate) mod registry;
 
 mod manager;
 
-pub use {loader::Loader, manager::Manager, registry::Handle};
+pub use {loader::Loader, manager::Manager, pool::Priority, registry::Handle};
 
 pub trait Asset: 'static {}
 
