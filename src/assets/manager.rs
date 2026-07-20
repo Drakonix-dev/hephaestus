@@ -40,7 +40,7 @@ impl Manager {
             .ok_or(AssetError::UnhandledAsset {
                 t: type_name::<A>().to_string(),
             })?
-            .parse(&src);
+            .parse(Box::new(src.fetch()));
 
         Ok(Handle::new(id, generation))
     }

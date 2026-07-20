@@ -5,13 +5,15 @@ use crate::assets::{
     registry::{ErasedRegistry, Registry, SlotState},
 };
 
-pub(crate) trait ErasedLoader: Send + Sync {
+pub(crate) trait ErasedLoader {
     fn parse<'a>(
         &'a self,
-        src: &(dyn Any + Send),
+        raw: Box<dyn Any>,
     ) -> Box<
-        dyn FnOnce(&(dyn Any + Send), &mut dyn ErasedRegistry) -> Result<(), AssetError>
-            + Send
+        dyn for<'b> FnOnce(
+                &'b (dyn Any + 'b),
+                &'b mut (dyn ErasedRegistry + 'b),
+            ) -> Result<(), AssetError>
             + 'a,
     >;
 }
@@ -27,26 +29,30 @@ impl<A, S, L> LoaderCell<A, S, L> {
 impl<A, S, L> ErasedLoader for LoaderCell<A, S, L>
 where
     A: Asset,
-    S: SourceFor<A, Raw: Send> + Send,
-    L: Loader<A, S> + Send + Sync,
+    S: SourceFor<A>,
+    L: Loader<A, S>,
 {
     fn parse<'a>(
         &'a self,
-        src: &(dyn Any + Send),
+        raw: Box<dyn Any>,
     ) -> Box<
-        dyn FnOnce(&(dyn Any + Send), &mut dyn ErasedRegistry) -> Result<(), AssetError>
-            + Send
+        dyn for<'b> FnOnce(
+                &'b (dyn Any + 'b),
+                &'b mut (dyn ErasedRegistry + 'b),
+            ) -> Result<(), AssetError>
             + 'a,
     > {
-        let raw = src
-            .downcast_ref::<S>()
-            .expect("Mistyped source for LoaderCell")
-            .fetch();
+        let parsed = self.0.parse(
+            *raw.downcast::<S::Raw>()
+                .expect("Mistyped raw for LoaderCell"),
+        );
+
         Box::new(move |handle, reg| {
             let h = handle
                 .downcast_ref::<Handle<A>>()
                 .expect("Mistyped handle for LoaderCell");
-            let built = self.0.build(raw);
+            let built = self.0.build(parsed);
+
             reg.as_any_mut()
                 .downcast_mut::<Registry<A, <L as Loader<A, S>>::Built>>()
                 .expect("Mistyped registry for LoaderCell")
@@ -58,9 +64,11 @@ where
 pub trait Loader<A, S>
 where
     A: Asset,
-    S: SourceFor<A, Raw: Send>,
+    S: SourceFor<A>,
 {
     type Built: 'static;
+    type Parsed: 'static;
 
-    fn build(&self, raw: S::Raw) -> Self::Built;
+    fn parse(&self, raw: S::Raw) -> Self::Parsed;
+    fn build(&self, parsed: Self::Parsed) -> Self::Built;
 }

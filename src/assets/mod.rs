@@ -8,8 +8,9 @@ pub use {loader::Loader, manager::Manager, registry::Handle};
 pub trait Asset: 'static {}
 
 pub trait SourceFor<A: Asset>: 'static {
-    type Raw: Send;
-    fn fetch(&self) -> Self::Raw;
+    type Raw;
+
+    fn fetch(&self) -> Result<Self::Raw, AssetError>;
 }
 
 pub enum AssetStatus {

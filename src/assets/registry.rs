@@ -55,8 +55,8 @@ pub(crate) enum SlotState<T> {
     Ready(T),
 }
 
-impl<T> From<SlotState<T>> for AssetStatus {
-    fn from(state: SlotState<T>) -> Self {
+impl<T> From<&SlotState<T>> for AssetStatus {
+    fn from(state: &SlotState<T>) -> Self {
         match state {
             SlotState::Failed(err) => AssetStatus::Failed(err.to_string()),
             SlotState::Pending => AssetStatus::Pending,
@@ -164,8 +164,7 @@ impl<Id: 'static, V: 'static> ErasedRegistry for Registry<Id, V> {
             id,
             generation,
             _marker: PhantomData,
-        })?
-        .into()
+        })
+        .map(|s| AssetStatus::from(s))
     }
 }
-
