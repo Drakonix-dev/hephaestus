@@ -1,10 +1,12 @@
+pub use {loader::Loader, manager::Manager, pool::Priority, registry::Handle};
+
 pub(crate) mod loader;
 pub(crate) mod pool;
 pub(crate) mod registry;
 
 mod manager;
 
-pub use {loader::Loader, manager::Manager, pool::Priority, registry::Handle};
+use std::error::Error;
 
 pub trait Asset: 'static {}
 
@@ -23,6 +25,12 @@ pub enum AssetStatus {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AssetError {
+    #[error("asset loading failed")]
+    LoadFailed {
+        #[source]
+        source: Box<dyn Error + Send + Sync>,
+    },
+
     #[error("asset not found: {t}x{id}")]
     NotFound { id: usize, t: String },
 

@@ -4,6 +4,7 @@ use crate::{diagnostics::DiagnosticsConfig, renderer::PresentMode};
 
 pub struct EngineConfig {
     pub diagnostics: DiagnosticsConfig,
+    pub io_threads: u8,
     pub present_mode: PresentMode,
     pub tick_freq: time::Duration,
     pub window_mode: WindowMode,
@@ -14,6 +15,7 @@ impl Default for EngineConfig {
     fn default() -> Self {
         Self {
             diagnostics: DiagnosticsConfig::default(),
+            io_threads: 4,
             present_mode: PresentMode::Vsync,
             tick_freq: time::Duration::from_secs(1) / 20,
             window_mode: WindowMode::Windowed,

@@ -1,7 +1,16 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    thread::{self, JoinHandle},
+};
 
-use crate::assets::{
-    Asset, AssetError, Handle, SourceFor, loader::ErasedLoader, registry::ErasedRegistry,
+use crossbeam_channel::{Receiver, Sender};
+
+use crate::{
+    assets::{
+        Asset, AssetError, Handle, SourceFor, loader::ErasedLoader, registry::ErasedRegistry,
+    },
+    config::EngineConfig,
+    events::EventBus,
 };
 
 pub enum Priority {
@@ -10,23 +19,103 @@ pub enum Priority {
     Idle,
 }
 
-pub(crate) struct Pool {}
+type MainThreadJob = Box<dyn FnOnce() + Send>;
+
+pub(crate) struct Pool {
+    events: Arc<EventBus>,
+    handles: Vec<JoinHandle<()>>,
+    io_tx: Sender<IOJob>,
+}
 
 impl Pool {
-    pub(crate) fn new() -> Self {
-        Self {}
+    pub(crate) fn new(cfg: &EngineConfig, events: Arc<EventBus>) -> Self {
+        let mut handles = Vec::new();
+
+        let (io_tx, io_rx) = crossbeam_channel::bounded(cfg.io_threads as usize);
+        for _ in 0..cfg.io_threads {
+            handles.push(IOWorker::spawn(io_rx.clone()));
+        }
+
+        let num_threads = thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
+        for _ in 0..num_threads {
+            let handle = thread::spawn(|| {});
+            handles.push(handle);
+        }
+
+        Self {
+            events,
+            handles,
+            io_tx,
+        }
     }
 
-    pub(crate) fn load<A: Asset, S: SourceFor<A>>(
+    pub(crate) fn close(&mut self) {
+        for h in self.handles.drain(..) {
+            h.join().unwrap();
+        }
+    }
+
+    pub(crate) fn load<A: Asset, S: SourceFor<A> + Send>(
         &self,
         handle: Handle<A>,
-        src: &S,
+        src: S,
         _priority: Priority,
         loader: Arc<dyn ErasedLoader>,
         reg: &mut dyn ErasedRegistry,
-    ) -> Result<(), AssetError> {
-        let raw = src.fetch()?;
-        let build = loader.parse(Box::new(raw));
-        (build)(&handle, reg)
+    ) {
+        let job = Box::new(move || match src.fetch() {
+            Ok(raw) => {
+                let parse_job = Box::new(move || {});
+            }
+            Err(err) => todo!("handle this"),
+        });
+        self.io_tx.send(job);
+
+        // let raw = src.fetch()?;
+        // let build = loader.parse(Box::new(raw));
+        // (build)(&handle, reg)
+    }
+}
+
+type IOJob = Box<dyn FnOnce() + Send>;
+
+struct IOWorker {
+    rx: Receiver<IOJob>,
+}
+
+impl IOWorker {
+    fn spawn(rx: Receiver<IOJob>) -> JoinHandle<()> {
+        let worker = Self { rx };
+        thread::spawn(|| worker.work())
+    }
+
+    fn work(self) {
+        while let Ok(job) = self.rx.recv() {
+            (job)()
+        }
+    }
+}
+
+type ParseJob = Box<dyn FnOnce() -> MainThreadJob + Send>;
+
+struct ParseWorker {
+    rx: Receiver<ParseJob>,
+    tx: Sender<MainThreadJob>,
+}
+
+impl ParseWorker {
+    fn spawn(rx: Receiver<ParseJob>, tx: Sender<MainThreadJob>) -> JoinHandle<()> {
+        let worker = Self { rx, tx };
+        thread::spawn(|| worker.work())
+    }
+
+    fn work(self) {
+        while let Ok(job) = self.rx.recv() {
+            let main_job = (job)();
+            if let Err(err) = self.tx.send(main_job) {}
+        }
     }
 }

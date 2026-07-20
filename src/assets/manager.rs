@@ -4,11 +4,15 @@ use std::{
     sync::Arc,
 };
 
-use crate::assets::{
-    Asset, AssetError, AssetStatus, Handle, Loader, Priority, SourceFor,
-    loader::{ErasedLoader, LoaderCell},
-    pool::Pool,
-    registry::{ErasedRegistry, Registry},
+use crate::{
+    assets::{
+        Asset, AssetError, AssetStatus, Handle, Loader, Priority, SourceFor,
+        loader::{ErasedLoader, LoaderCell},
+        pool::Pool,
+        registry::{ErasedRegistry, Registry},
+    },
+    config::EngineConfig,
+    events::EventBus,
 };
 
 pub struct Manager {
@@ -18,17 +22,17 @@ pub struct Manager {
 }
 
 impl Manager {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(cfg: &EngineConfig, events: Arc<EventBus>) -> Self {
         Self {
             loaders: HashMap::new(),
-            pool: Pool::new(),
+            pool: Pool::new(cfg, events),
             registry: HashMap::new(),
         }
     }
 
     pub fn load<A: Asset, S: SourceFor<A> + Send>(
         &mut self,
-        src: &S,
+        src: S,
         priority: Priority,
     ) -> Result<Handle<A>, AssetError> {
         let registry =
@@ -39,14 +43,18 @@ impl Manager {
                 })?;
 
         let key = (TypeId::of::<A>(), TypeId::of::<S>());
-        let loader = self.loaders.get(&key).ok_or(AssetError::UnhandledAsset {
-            t: type_name::<A>().to_string(),
-        })?;
+        let loader = self
+            .loaders
+            .get(&key)
+            .ok_or(AssetError::UnhandledAsset {
+                t: type_name::<A>().to_string(),
+            })?
+            .clone();
 
         let (id, generation) = registry.insert_pending();
         let handle = Handle::new(id, generation);
         self.pool
-            .load(handle, src, priority, loader.clone(), registry.as_mut())?;
+            .load(handle, src, priority, loader, registry.as_mut());
 
         Ok(handle)
     }
@@ -54,8 +62,8 @@ impl Manager {
     pub fn register<A, S, L>(&mut self, l: L)
     where
         A: Asset,
-        S: SourceFor<A> + Send,
-        L: Loader<A, S> + Send + Sync + 'static,
+        S: SourceFor<A>,
+        L: Loader<A, S> + 'static,
     {
         self.registry
             .entry(TypeId::of::<A>())
