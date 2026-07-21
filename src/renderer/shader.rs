@@ -11,23 +11,19 @@ pub struct ShaderDefinition {
 }
 
 impl SourceFor<Shader> for ShaderDefinition {
-    type Raw = (PathBuf, BindGroupLayout, Vec<u8>);
+    type Raw = Vec<u8>;
 
     fn fetch(&self) -> Result<Self::Raw, AssetError> {
-        fs::read(self.source.as_path())
-            .map(|v| (self.source, self.layout, v))
-            .map_err(|err| AssetError::Other {
-                source: Box::new(err),
-            })
+        fs::read(self.source.as_path()).map_err(|err| AssetError::Other {
+            source: Box::new(err),
+        })
     }
 }
 
-#[derive(Clone)]
 pub struct BindGroupLayout {
     pub entries: Vec<BindingDesc>,
 }
 
-#[derive(Clone)]
 pub struct BindingDesc {
     pub binding: u32,
     pub ty: BindingType,

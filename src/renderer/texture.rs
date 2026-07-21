@@ -12,14 +12,12 @@ pub struct TextureDefinition {
 }
 
 impl SourceFor<Texture> for TextureDefinition {
-    type Raw = (PathBuf, Option<u32>, TextureDimension, Vec<u8>);
+    type Raw = Vec<u8>;
 
     fn fetch(&self) -> Result<Self::Raw, AssetError> {
-        fs::read(self.source.as_path())
-            .map(|v| (self.source, self.depth, self.dimension, v))
-            .map_err(|err| AssetError::Other {
-                source: Box::new(err),
-            })
+        fs::read(self.source.as_path()).map_err(|err| AssetError::Other {
+            source: Box::new(err),
+        })
     }
 }
 
