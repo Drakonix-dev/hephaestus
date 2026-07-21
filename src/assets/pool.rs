@@ -7,7 +7,7 @@ use crossbeam_channel::{Receiver, Sender, select_biased};
 
 use crate::{
     assets::{
-        Asset, SourceFor,
+        Asset, AssetError, SourceFor,
         loader::{BuildFn, ErasedLoader},
     },
     config::EngineConfig,
@@ -71,20 +71,18 @@ impl Pool {
         src: Arc<S>,
         priority: Priority,
         loader: Arc<dyn ErasedLoader>,
-        submit: Box<dyn FnOnce(BuildFn) + Send>,
+        submit: Box<dyn FnOnce(Result<BuildFn, AssetError>) + Send>,
     ) {
         let ptx = self.p_txs[priority as usize].clone();
 
-        let job = Box::new(move || {
-            if let Ok(raw) = src.fetch() {
+        let job = Box::new(move || match src.fetch() {
+            Ok(raw) => {
                 ptx.send(Box::new(move || {
-                    let build = loader
-                        .parse(src, Box::new(raw))
-                        .expect("Failed to parse asset");
-                    submit(build);
+                    submit(loader.parse(src, Box::new(raw)));
                 }))
                 .expect("Failed to send parse job");
             }
+            Err(e) => submit(Err(e)),
         });
         self.io_tx.send(job).expect("Failed to send io job");
     }

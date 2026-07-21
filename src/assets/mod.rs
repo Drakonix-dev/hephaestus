@@ -3,13 +3,29 @@ mod manager;
 pub(crate) mod pool;
 pub(crate) mod registry;
 
-use std::error::Error;
 pub use {
     loader::Loader as AssetLoader, manager::Manager as AssetManager,
     pool::Priority as AssetPriority, registry::Handle as AssetHandle,
 };
 
+use std::error::Error;
+
+use crate::events::Event;
+
 pub trait Asset: 'static {}
+
+pub struct AssetFailed<A: Asset> {
+    pub handle: AssetHandle<A>,
+    pub reason: String,
+}
+
+impl<A: Asset> Event for AssetFailed<A> {}
+
+pub struct AssetLoaded<A: Asset> {
+    pub handle: AssetHandle<A>,
+}
+
+impl<A: Asset> Event for AssetLoaded<A> {}
 
 pub trait SourceFor<A: Asset>: 'static {
     type Raw;

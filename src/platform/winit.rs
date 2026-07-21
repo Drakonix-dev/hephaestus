@@ -157,7 +157,7 @@ impl<A: Application> AppState<A> {
 
         handler
             .assets
-            .process_queued_assets()
+            .process_queued_assets(&mut self.events)
             .expect("Failed to process queued assets");
 
         let prepared = match handler

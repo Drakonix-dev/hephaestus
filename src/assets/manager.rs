@@ -9,26 +9,30 @@ use std::{
 
 use crate::{
     assets::{
-        Asset, AssetError, AssetStatus, SourceFor,
+        Asset, AssetError, AssetFailed, AssetLoaded, AssetStatus, SourceFor,
         loader::{BuildFn, ErasedLoader, Loader, LoaderCell},
         pool::{Pool, Priority},
         registry::{ErasedRegistry, Handle, Registry},
     },
     config::EngineConfig,
+    events::EventBus,
 };
 
-type LoadAssetJob = (
-    TypeId,
-    String,
-    Box<dyn FnOnce(&mut dyn ErasedRegistry) -> Result<(), AssetError> + Send>,
-);
+type ApplyFn =
+    Box<dyn FnOnce(&mut dyn ErasedRegistry, &mut EventBus) -> Result<(), AssetError> + Send>;
+
+struct QueuedAsset {
+    apply: ApplyFn,
+    type_id: TypeId,
+    type_name: &'static str,
+}
 
 pub struct Manager {
     loaders: HashMap<(TypeId, TypeId), Arc<dyn ErasedLoader>>,
     pool: Pool,
     registry: HashMap<TypeId, Box<dyn ErasedRegistry>>,
-    qrx: Receiver<LoadAssetJob>,
-    qtx: Sender<LoadAssetJob>,
+    qrx: Receiver<QueuedAsset>,
+    qtx: Sender<QueuedAsset>,
 }
 
 impl Manager {
@@ -73,12 +77,25 @@ impl Manager {
         let handle = Handle::new(id, generation);
 
         let tx = self.qtx.clone();
-        let submit = Box::new(move |build: BuildFn| {
-            tx.send((
-                TypeId::of::<A>(),
-                type_name::<A>().to_string(),
-                Box::new(move |reg| (build)(&handle, reg)),
-            ))
+        let submit = Box::new(move |result: Result<BuildFn, AssetError>| {
+            let apply: ApplyFn = Box::new(move |reg, events| {
+                match result.and_then(|build| build(&handle, reg)) {
+                    Ok(()) => events.publish(AssetLoaded { handle }),
+                    Err(e) => {
+                        let reason = e.to_string();
+                        reg.failed(handle.id, handle.generation, Box::new(e))?;
+                        events.publish(AssetFailed { handle, reason });
+                    }
+                }
+
+                Ok(())
+            });
+
+            tx.send(QueuedAsset {
+                apply,
+                type_id: TypeId::of::<A>(),
+                type_name: type_name::<A>(),
+            })
             .expect("Failed to send");
         });
 
@@ -88,14 +105,16 @@ impl Manager {
         Ok(handle)
     }
 
-    pub(crate) fn process_queued_assets(&mut self) -> Result<(), AssetError> {
+    pub(crate) fn process_queued_assets(&mut self, events: &mut EventBus) -> Result<(), AssetError> {
         while let Ok(job) = self.qrx.try_recv() {
-            (job.2)(
-                self.registry
-                    .get_mut(&job.0)
-                    .ok_or(AssetError::UnknownAsset { t: job.1 })?
-                    .as_mut(),
-            )?;
+            let reg = self
+                .registry
+                .get_mut(&job.type_id)
+                .ok_or(AssetError::UnknownAsset {
+                    t: job.type_name.to_string(),
+                })?;
+
+            (job.apply)(reg.as_mut(), events)?;
         }
 
         Ok(())
