@@ -10,6 +10,7 @@ use winit::{
 
 use crate::{
     Application, ApplicationContext, ApplicationInstance, EngineError,
+    assets::AssetManager,
     commands::{EngineCommand, EngineCommandReader, EngineCommandWriter, engine_command_channel},
     config::{EngineConfig, RuntimeConfig, WindowMode},
     diagnostics::diag,
@@ -43,6 +44,7 @@ impl WinitPlatform {
 
 struct AppState<A: Application> {
     app: A,
+    assets: AssetManager,
     cfg: EngineConfig,
     engine_reader: EngineCommandReader,
     engine_writer: EngineCommandWriter,
@@ -66,6 +68,7 @@ impl<A: Application> AppState<A> {
 
         Self {
             app,
+            assets: AssetManager::new(&cfg),
             cfg,
             engine_reader,
             engine_writer,
@@ -93,13 +96,14 @@ impl<A: Application> AppState<A> {
         let renderer = Renderer::new(backend, &self.graph, reader)?;
 
         let runtime_config = RuntimeConfig::from(&self.cfg);
-        let instance = self.app.create(&ApplicationContext::new(
-            &self.engine_writer,
-            &runtime_config,
-            &mut self.events,
-            &mut renderer_handle,
-            &renderer.viewport(),
-        ));
+        let instance = self.app.create(&ApplicationContext {
+            assets: &mut self.assets,
+            commands: &self.engine_writer,
+            config: &runtime_config,
+            events: &mut self.events,
+            renderer: &mut renderer_handle,
+            viewport: &renderer.viewport(),
+        });
 
         self.handler = Some(AppHandler {
             accumulator: time::Duration::from_nanos(0),
@@ -121,13 +125,14 @@ impl<A: Application> AppState<A> {
         let _frame = tracing::info_span!(target: diag::FRAME, "frame").entered();
 
         let viewport = handler.renderer.viewport();
-        let ctx = ApplicationContext::new(
-            &self.engine_writer,
-            &handler.cfg,
-            &mut self.events,
-            &mut handler.renderer_handle,
-            &viewport,
-        );
+        let ctx = ApplicationContext {
+            assets: &mut self.assets,
+            commands: &self.engine_writer,
+            config: &handler.cfg,
+            events: &mut self.events,
+            renderer: &mut handler.renderer_handle,
+            viewport: &viewport,
+        };
 
         let current_frame = time::Instant::now();
         handler.accumulator += current_frame.duration_since(handler.last_frame);

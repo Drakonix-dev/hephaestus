@@ -1,8 +1,8 @@
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use crate::assets::{
-    Asset, AssetError, Handle, SourceFor,
-    registry::{ErasedRegistry, Registry, SlotState},
+    Asset, AssetError, SourceFor,
+    registry::{ErasedRegistry, Handle, Registry, SlotState},
 };
 
 pub(crate) type BuildFn =

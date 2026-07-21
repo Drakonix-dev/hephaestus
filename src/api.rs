@@ -1,11 +1,12 @@
 use std::time;
 
 use crate::{
+    assets::AssetManager,
     commands::{EngineCommand, EngineCommandWriter},
-    config::{RuntimeConfig, WindowMode},
+    config::RuntimeConfig,
     events::EventBus,
     platform::PlatformError,
-    renderer::{DrawCommand, PresentMode, RenderError, RenderPhase, RendererHandle, Viewport},
+    renderer::{DrawCommand, RenderError, RenderPhase, RendererHandle, Viewport},
 };
 
 pub trait Application {
@@ -26,7 +27,8 @@ pub trait ApplicationInstance {
 }
 
 pub struct ApplicationContext<'a> {
-    commands: &'a EngineCommandWriter,
+    pub assets: &'a mut AssetManager,
+    pub(crate) commands: &'a EngineCommandWriter,
     pub config: &'a RuntimeConfig,
     pub events: &'a mut EventBus,
     pub renderer: &'a mut RendererHandle,
@@ -34,36 +36,8 @@ pub struct ApplicationContext<'a> {
 }
 
 impl<'a> ApplicationContext<'a> {
-    pub(crate) fn new(
-        commands: &'a EngineCommandWriter,
-        config: &'a RuntimeConfig,
-        events: &'a mut EventBus,
-        renderer: &'a mut RendererHandle,
-        viewport: &'a Viewport,
-    ) -> Self {
-        Self {
-            commands,
-            config,
-            events,
-            renderer,
-            viewport,
-        }
-    }
-
-    pub fn request_exit(&self) {
-        self.commands.push(EngineCommand::RequestExit);
-    }
-
-    pub fn set_present_mode(&self, mode: PresentMode) {
-        self.commands.push(EngineCommand::SetPresentMode(mode));
-    }
-
-    pub fn set_tick_freq(&self, freq: time::Duration) {
-        self.commands.push(EngineCommand::SetTickFreq(freq));
-    }
-
-    pub fn set_window_mode(&self, mode: WindowMode) {
-        self.commands.push(EngineCommand::SetWindowMode(mode));
+    pub fn send_cmd(&self, cmd: EngineCommand) {
+        self.commands.push(cmd);
     }
 }
 

@@ -9,10 +9,10 @@ use std::{
 
 use crate::{
     assets::{
-        Asset, AssetError, AssetStatus, Handle, Loader, Priority, SourceFor,
-        loader::{BuildFn, ErasedLoader, LoaderCell},
-        pool::Pool,
-        registry::{ErasedRegistry, Registry},
+        Asset, AssetError, AssetStatus, SourceFor,
+        loader::{BuildFn, ErasedLoader, Loader, LoaderCell},
+        pool::{Pool, Priority},
+        registry::{ErasedRegistry, Handle, Registry},
     },
     config::EngineConfig,
 };

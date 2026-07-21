@@ -1,4 +1,7 @@
-pub use {loader::Loader, manager::Manager, pool::Priority, registry::Handle};
+pub use {
+    loader::Loader as AssetLoader, manager::Manager as AssetManager,
+    pool::Priority as AssetPriority, registry::Handle as AssetHandle,
+};
 
 pub(crate) mod loader;
 pub(crate) mod pool;
