@@ -68,7 +68,14 @@ impl<T> From<&SlotState<T>> for AssetStatus {
 pub(crate) trait ErasedRegistry: Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn failed(
+        &mut self,
+        id: usize,
+        generation: u64,
+        err: Box<dyn Error + Send + Sync>,
+    ) -> Result<(), AssetError>;
     fn insert_pending(&mut self) -> (usize, u64);
+    fn ready(&mut self, id: usize, generation: u64, v: Box<dyn Any>) -> Result<(), AssetError>;
     fn release(&mut self, id: usize, generation: u64) -> Result<(), AssetError>;
     fn status(&self, id: usize, generation: u64) -> Result<AssetStatus, AssetError>;
 }
@@ -146,25 +153,31 @@ impl<Id: 'static, V: 'static> ErasedRegistry for Registry<Id, V> {
         self
     }
 
+    fn failed(
+        &mut self,
+        id: usize,
+        generation: u64,
+        err: Box<dyn Error + Send + Sync>,
+    ) -> Result<(), AssetError> {
+        self.update(Handle::new(id, generation), SlotState::Failed(err))
+    }
+
     fn insert_pending(&mut self) -> (usize, u64) {
         let handle = self.insert(SlotState::Pending);
         (handle.id, handle.generation)
     }
 
+    fn ready(&mut self, id: usize, generation: u64, v: Box<dyn Any>) -> Result<(), AssetError> {
+        let state = v.downcast::<V>().expect("Mistyped state for registry");
+        self.update(Handle::new(id, generation), SlotState::Ready(*state))
+    }
+
     fn release(&mut self, id: usize, generation: u64) -> Result<(), AssetError> {
-        self.release(Handle {
-            id,
-            generation,
-            _marker: PhantomData,
-        })
+        self.release(Handle::new(id, generation))
     }
 
     fn status(&self, id: usize, generation: u64) -> Result<AssetStatus, AssetError> {
-        self.get(&Handle {
-            id,
-            generation,
-            _marker: PhantomData,
-        })
-        .map(|s| AssetStatus::from(s))
+        self.get(&Handle::new(id, generation))
+            .map(|s| AssetStatus::from(s))
     }
 }

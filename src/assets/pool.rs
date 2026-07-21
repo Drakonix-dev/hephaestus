@@ -1,5 +1,4 @@
 use std::{
-    error::Error,
     sync::{
         Arc,
         mpsc::{self, Receiver as SReceiver, Sender as SSender},
@@ -7,14 +6,14 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, select_biased};
 
 use crate::{
     assets::{
-        Asset, AssetError, Handle, SourceFor, loader::ErasedLoader, registry::ErasedRegistry,
+        Asset, SourceFor,
+        loader::{BuildFn, ErasedLoader},
     },
     config::EngineConfig,
-    events::EventBus,
 };
 
 pub enum Priority {
@@ -23,105 +22,82 @@ pub enum Priority {
     Idle,
 }
 
-struct MainThreadJob {
-    err: Option<Box<dyn Error + Send + Sync>>,
-    job: Option<Box<dyn FnOnce() + Send>>,
-}
+const TOTAL_PRIORITIES: usize = Priority::Idle as usize + 1;
 
-impl MainThreadJob {
-    fn new(job: Box<dyn FnOnce() + Send>) -> Self {
-        Self {
-            err: None,
-            job: Some(job),
-        }
-    }
-
-    fn err(err: Box<dyn Error + Send + Sync>) -> Self {
-        Self {
-            err: Some(err),
-            job: None,
-        }
-    }
-}
+type MainThreadJob = Box<dyn FnOnce() + Send>;
 
 pub(crate) struct Pool {
-    events: Arc<EventBus>,
     handles: Vec<JoinHandle<()>>,
     io_tx: Sender<IOJob>,
+    p_txs: [Sender<ParseJob>; TOTAL_PRIORITIES],
     rx: SReceiver<MainThreadJob>,
     tx: SSender<MainThreadJob>,
 }
 
 impl Pool {
-    pub(crate) fn new(cfg: &EngineConfig, events: Arc<EventBus>) -> Self {
+    pub(crate) fn new(cfg: &EngineConfig) -> Self {
         let mut handles = Vec::new();
         let (tx, rx) = mpsc::channel();
 
-        let (io_tx, io_rx) = crossbeam_channel::bounded(cfg.io_threads as usize);
+        let (io_tx, io_rx) = crossbeam_channel::unbounded();
         for _ in 0..cfg.io_threads {
             handles.push(IOWorker::spawn(io_rx.clone()));
         }
+
+        let (pc_tx, pc_rx) = crossbeam_channel::unbounded();
+        let (ps_tx, ps_rx) = crossbeam_channel::unbounded();
+        let (pi_tx, pi_rx) = crossbeam_channel::unbounded();
+        let p_txs = [pc_tx, ps_tx, pi_tx];
 
         let num_threads = thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
 
         for _ in 0..num_threads {
-            let handle = thread::spawn(|| {});
-            handles.push(handle);
+            let p_rxs = [pc_rx.clone(), ps_rx.clone(), pi_rx.clone()];
+            handles.push(ParseWorker::spawn(p_rxs));
         }
 
         Self {
-            events,
             handles,
             io_tx,
+            p_txs,
             rx,
             tx,
         }
     }
 
-    pub(crate) fn close(&mut self) {
-        for h in self.handles.drain(..) {
+    pub(crate) fn close(self) {
+        drop(self.tx);
+        drop(self.io_tx);
+        drop(self.p_txs);
+
+        for h in self.handles {
             h.join().unwrap();
         }
     }
 
-    pub(crate) fn load<A: Asset, S: SourceFor<A> + Send>(
+    pub(crate) fn load<A: Asset, S: SourceFor<A, Raw: Send> + Send>(
         &mut self,
-        handle: Handle<A>,
         src: S,
-        _priority: Priority,
+        priority: Priority,
         loader: Arc<dyn ErasedLoader>,
-        reg: &mut dyn ErasedRegistry,
+        submit: Box<dyn FnOnce(BuildFn) + Send>,
     ) {
+        let ptx = self.p_txs[priority as usize].clone();
         let tx = self.tx.clone();
 
-        let job = Box::new(move || match src.fetch() {
-            Ok(raw) => {
-                let parse_job = Box::new(move || {
-                    let main_job = match loader.parse(Box::new(raw)) {
-                        Ok(build) => MainThreadJob::new(Box::new(move || {
-                            if let Err(err) = (build)(&handle, reg) {
-                                tx.send(MainThreadJob::err(Box::new(err)))
-                                    .expect("Failed to emit error");
-                            }
-                        })),
-                        Err(err) => MainThreadJob::err(Box::new(err)),
-                    };
-
-                    tx.send(main_job).expect("Failed to emit error");
-                });
-                todo!("send parse job");
+        let job = Box::new(move || {
+            if let Ok(raw) = src.fetch() {
+                ptx.send(Box::new(move || {
+                    let build = loader.parse(Box::new(raw)).expect("Failed to parse asset");
+                    tx.send(Box::new(move || submit(build)))
+                        .expect("Failed to send main job");
+                }))
+                .expect("Failed to send parse job");
             }
-            Err(err) => tx
-                .send(MainThreadJob::err(Box::new(err)))
-                .expect("Failed to emit error"),
         });
-        self.io_tx.send(job);
-
-        // let raw = src.fetch()?;
-        // let build = loader.parse(Box::new(raw));
-        // (build)(&handle, reg)
+        self.io_tx.send(job).expect("Failed to send io job");
     }
 }
 
@@ -144,23 +120,23 @@ impl IOWorker {
     }
 }
 
-type ParseJob = Box<dyn FnOnce() -> MainThreadJob + Send>;
+type ParseJob = Box<dyn FnOnce() + Send>;
 
 struct ParseWorker {
-    rx: Receiver<ParseJob>,
-    tx: Sender<MainThreadJob>,
+    rxs: [Receiver<ParseJob>; TOTAL_PRIORITIES],
 }
 
 impl ParseWorker {
-    fn spawn(rx: Receiver<ParseJob>, tx: Sender<MainThreadJob>) -> JoinHandle<()> {
-        let worker = Self { rx, tx };
+    fn spawn(rxs: [Receiver<ParseJob>; TOTAL_PRIORITIES]) -> JoinHandle<()> {
+        let worker = Self { rxs };
         thread::spawn(|| worker.work())
     }
 
     fn work(self) {
-        while let Ok(job) = self.rx.recv() {
-            let main_job = (job)();
-            if let Err(err) = self.tx.send(main_job) {}
-        }
+        select_biased!(
+            recv(self.rxs[Priority::Critical as usize]) -> job => (job.expect("Failed to recv job"))(),
+            recv(self.rxs[Priority::Streaming as usize]) -> job => (job.expect("Failed to recv job"))(),
+            recv(self.rxs[Priority::Idle as usize]) -> job => (job.expect("Failed to recv job"))(),
+        );
     }
 }

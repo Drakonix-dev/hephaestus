@@ -1,36 +1,50 @@
 use std::{
     any::{TypeId, type_name},
     collections::HashMap,
-    sync::Arc,
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender},
+    },
 };
 
 use crate::{
     assets::{
         Asset, AssetError, AssetStatus, Handle, Loader, Priority, SourceFor,
-        loader::{ErasedLoader, LoaderCell},
+        loader::{BuildFn, ErasedLoader, LoaderCell},
         pool::Pool,
         registry::{ErasedRegistry, Registry},
     },
     config::EngineConfig,
-    events::EventBus,
 };
+
+type LoadAssetJob = (
+    TypeId,
+    String,
+    Box<dyn FnOnce(&mut dyn ErasedRegistry) -> Result<(), AssetError> + Send>,
+);
 
 pub struct Manager {
     loaders: HashMap<(TypeId, TypeId), Arc<dyn ErasedLoader>>,
     pool: Pool,
     registry: HashMap<TypeId, Box<dyn ErasedRegistry>>,
+    qrx: Receiver<LoadAssetJob>,
+    qtx: Sender<LoadAssetJob>,
 }
 
 impl Manager {
-    pub(crate) fn new(cfg: &EngineConfig, events: Arc<EventBus>) -> Self {
+    pub(crate) fn new(cfg: &EngineConfig) -> Self {
+        let (tx, rx) = mpsc::channel();
+
         Self {
             loaders: HashMap::new(),
-            pool: Pool::new(cfg, events),
+            pool: Pool::new(cfg),
             registry: HashMap::new(),
+            qrx: rx,
+            qtx: tx,
         }
     }
 
-    pub fn load<A: Asset, S: SourceFor<A> + Send>(
+    pub fn load<A: Asset, S: SourceFor<A, Raw: Send> + Send>(
         &mut self,
         src: S,
         priority: Priority,
@@ -53,17 +67,39 @@ impl Manager {
 
         let (id, generation) = registry.insert_pending();
         let handle = Handle::new(id, generation);
-        self.pool
-            .load(handle, src, priority, loader, registry.as_mut());
+
+        let tx = self.qtx.clone();
+        let submit = Box::new(move |build: BuildFn| {
+            tx.send((
+                TypeId::of::<A>(),
+                type_name::<A>().to_string(),
+                Box::new(move |reg| (build)(&handle, reg)),
+            ))
+            .expect("Failed to send");
+        });
+        self.pool.load(src, priority, loader, submit);
 
         Ok(handle)
+    }
+
+    pub(crate) fn process_queued_assets(&mut self) -> Result<(), AssetError> {
+        while let Ok(job) = self.qrx.try_recv() {
+            (job.2)(
+                self.registry
+                    .get_mut(&job.0)
+                    .ok_or(AssetError::UnknownAsset { t: job.1 })?
+                    .as_mut(),
+            )?;
+        }
+
+        Ok(())
     }
 
     pub fn register<A, S, L>(&mut self, l: L)
     where
         A: Asset,
-        S: SourceFor<A>,
-        L: Loader<A, S> + Send + Sync + 'static,
+        S: SourceFor<A, Raw: Send>,
+        L: Loader<A, S, Parsed: Send> + Send + Sync + 'static,
     {
         self.registry
             .entry(TypeId::of::<A>())

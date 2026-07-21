@@ -5,14 +5,11 @@ use crate::assets::{
     registry::{ErasedRegistry, Registry, SlotState},
 };
 
+pub(crate) type BuildFn =
+    Box<dyn FnOnce(&(dyn Any), &mut (dyn ErasedRegistry)) -> Result<(), AssetError> + Send>;
+
 pub(crate) trait ErasedLoader: Send + Sync {
-    fn parse<'a>(
-        self: Arc<Self>,
-        raw: Box<dyn Any>,
-    ) -> Result<
-        Box<dyn FnOnce(&(dyn Any), &mut (dyn ErasedRegistry)) -> Result<(), AssetError>>,
-        AssetError,
-    >;
+    fn parse<'a>(self: Arc<Self>, raw: Box<dyn Any>) -> Result<BuildFn, AssetError>;
 }
 
 pub(crate) struct LoaderCell<A, S, L>(L, PhantomData<fn() -> (A, S)>);
@@ -26,16 +23,10 @@ impl<A, S, L> LoaderCell<A, S, L> {
 impl<A, S, L> ErasedLoader for LoaderCell<A, S, L>
 where
     A: Asset,
-    S: SourceFor<A>,
-    L: Loader<A, S> + Send + Sync + 'static,
+    S: SourceFor<A, Raw: Send>,
+    L: Loader<A, S, Parsed: Send> + Send + Sync + 'static,
 {
-    fn parse(
-        self: Arc<Self>,
-        raw: Box<dyn Any>,
-    ) -> Result<
-        Box<dyn FnOnce(&(dyn Any), &mut (dyn ErasedRegistry)) -> Result<(), AssetError>>,
-        AssetError,
-    > {
+    fn parse(self: Arc<Self>, raw: Box<dyn Any>) -> Result<BuildFn, AssetError> {
         let parsed = self.0.parse(
             *raw.downcast::<S::Raw>()
                 .expect("Mistyped raw for LoaderCell"),
@@ -58,7 +49,7 @@ where
 pub trait Loader<A, S>
 where
     A: Asset,
-    S: SourceFor<A>,
+    S: SourceFor<A, Raw: Send>,
 {
     type Built: 'static;
     type Parsed: 'static;
