@@ -44,7 +44,6 @@ impl WinitPlatform {
 
 struct AppState<A: Application> {
     app: A,
-    assets: AssetManager,
     cfg: EngineConfig,
     engine_reader: EngineCommandReader,
     engine_writer: EngineCommandWriter,
@@ -55,6 +54,7 @@ struct AppState<A: Application> {
 
 struct AppHandler<I: ApplicationInstance> {
     accumulator: time::Duration,
+    assets: AssetManager,
     cfg: RuntimeConfig,
     instance: I,
     last_frame: time::Instant,
@@ -68,7 +68,6 @@ impl<A: Application> AppState<A> {
 
         Self {
             app,
-            assets: AssetManager::new(&cfg),
             cfg,
             engine_reader,
             engine_writer,
@@ -92,12 +91,13 @@ impl<A: Application> AppState<A> {
         let (writer, reader) = render_queue_channel();
         let mut renderer_handle = RendererHandle::new(writer);
 
+        let mut assets = AssetManager::new(&self.cfg);
         let backend = pollster::block_on(WgpuRenderer::new(&self.cfg, window))?;
         let renderer = Renderer::new(backend, &self.graph, reader)?;
 
         let runtime_config = RuntimeConfig::from(&self.cfg);
         let instance = self.app.create(&ApplicationContext {
-            assets: &mut self.assets,
+            assets: &mut assets,
             commands: &self.engine_writer,
             config: &runtime_config,
             events: &mut self.events,
@@ -107,6 +107,7 @@ impl<A: Application> AppState<A> {
 
         self.handler = Some(AppHandler {
             accumulator: time::Duration::from_nanos(0),
+            assets,
             cfg: runtime_config,
             instance,
             last_frame: time::Instant::now(),
@@ -126,7 +127,7 @@ impl<A: Application> AppState<A> {
 
         let viewport = handler.renderer.viewport();
         let ctx = ApplicationContext {
-            assets: &mut self.assets,
+            assets: &mut handler.assets,
             commands: &self.engine_writer,
             config: &handler.cfg,
             events: &mut self.events,
@@ -153,6 +154,11 @@ impl<A: Application> AppState<A> {
         } else {
             handler.accumulator.as_secs_f32() / handler.cfg.tick_freq.as_secs_f32()
         };
+
+        handler
+            .assets
+            .process_queued_assets()
+            .expect("Failed to process queued assets");
 
         let prepared = match handler
             .renderer
@@ -246,6 +252,7 @@ impl<A: Application> ApplicationHandler for AppState<A> {
             return;
         };
 
+        handler.assets.close();
         handler.instance.quit();
         handler.renderer.shutdown();
     }

@@ -1,8 +1,5 @@
 use std::{
-    sync::{
-        Arc,
-        mpsc::{self, Receiver as SReceiver, Sender as SSender},
-    },
+    sync::Arc,
     thread::{self, JoinHandle},
 };
 
@@ -24,20 +21,15 @@ pub enum Priority {
 
 const TOTAL_PRIORITIES: usize = Priority::Idle as usize + 1;
 
-type MainThreadJob = Box<dyn FnOnce() + Send>;
-
 pub(crate) struct Pool {
     handles: Vec<JoinHandle<()>>,
     io_tx: Sender<IOJob>,
     p_txs: [Sender<ParseJob>; TOTAL_PRIORITIES],
-    rx: SReceiver<MainThreadJob>,
-    tx: SSender<MainThreadJob>,
 }
 
 impl Pool {
     pub(crate) fn new(cfg: &EngineConfig) -> Self {
         let mut handles = Vec::new();
-        let (tx, rx) = mpsc::channel();
 
         let (io_tx, io_rx) = crossbeam_channel::unbounded();
         for _ in 0..cfg.io_threads {
@@ -62,13 +54,10 @@ impl Pool {
             handles,
             io_tx,
             p_txs,
-            rx,
-            tx,
         }
     }
 
     pub(crate) fn close(self) {
-        drop(self.tx);
         drop(self.io_tx);
         drop(self.p_txs);
 
@@ -85,14 +74,12 @@ impl Pool {
         submit: Box<dyn FnOnce(BuildFn) + Send>,
     ) {
         let ptx = self.p_txs[priority as usize].clone();
-        let tx = self.tx.clone();
 
         let job = Box::new(move || {
             if let Ok(raw) = src.fetch() {
                 ptx.send(Box::new(move || {
                     let build = loader.parse(Box::new(raw)).expect("Failed to parse asset");
-                    tx.send(Box::new(move || submit(build)))
-                        .expect("Failed to send main job");
+                    submit(build);
                 }))
                 .expect("Failed to send parse job");
             }

@@ -44,6 +44,10 @@ impl Manager {
         }
     }
 
+    pub(crate) fn close(self) {
+        self.pool.close()
+    }
+
     pub fn load<A: Asset, S: SourceFor<A, Raw: Send> + Send>(
         &mut self,
         src: S,
