@@ -1,5 +1,9 @@
 use std::{
-    sync::Arc,
+    error::Error,
+    sync::{
+        Arc,
+        mpsc::{self, Receiver as SReceiver, Sender as SSender},
+    },
     thread::{self, JoinHandle},
 };
 
@@ -19,17 +23,39 @@ pub enum Priority {
     Idle,
 }
 
-type MainThreadJob = Box<dyn FnOnce() + Send>;
+struct MainThreadJob {
+    err: Option<Box<dyn Error + Send + Sync>>,
+    job: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl MainThreadJob {
+    fn new(job: Box<dyn FnOnce() + Send>) -> Self {
+        Self {
+            err: None,
+            job: Some(job),
+        }
+    }
+
+    fn err(err: Box<dyn Error + Send + Sync>) -> Self {
+        Self {
+            err: Some(err),
+            job: None,
+        }
+    }
+}
 
 pub(crate) struct Pool {
     events: Arc<EventBus>,
     handles: Vec<JoinHandle<()>>,
     io_tx: Sender<IOJob>,
+    rx: SReceiver<MainThreadJob>,
+    tx: SSender<MainThreadJob>,
 }
 
 impl Pool {
     pub(crate) fn new(cfg: &EngineConfig, events: Arc<EventBus>) -> Self {
         let mut handles = Vec::new();
+        let (tx, rx) = mpsc::channel();
 
         let (io_tx, io_rx) = crossbeam_channel::bounded(cfg.io_threads as usize);
         for _ in 0..cfg.io_threads {
@@ -49,6 +75,8 @@ impl Pool {
             events,
             handles,
             io_tx,
+            rx,
+            tx,
         }
     }
 
@@ -59,18 +87,35 @@ impl Pool {
     }
 
     pub(crate) fn load<A: Asset, S: SourceFor<A> + Send>(
-        &self,
+        &mut self,
         handle: Handle<A>,
         src: S,
         _priority: Priority,
         loader: Arc<dyn ErasedLoader>,
         reg: &mut dyn ErasedRegistry,
     ) {
+        let tx = self.tx.clone();
+
         let job = Box::new(move || match src.fetch() {
             Ok(raw) => {
-                let parse_job = Box::new(move || {});
+                let parse_job = Box::new(move || {
+                    let main_job = match loader.parse(Box::new(raw)) {
+                        Ok(build) => MainThreadJob::new(Box::new(move || {
+                            if let Err(err) = (build)(&handle, reg) {
+                                tx.send(MainThreadJob::err(Box::new(err)))
+                                    .expect("Failed to emit error");
+                            }
+                        })),
+                        Err(err) => MainThreadJob::err(Box::new(err)),
+                    };
+
+                    tx.send(main_job).expect("Failed to emit error");
+                });
+                todo!("send parse job");
             }
-            Err(err) => todo!("handle this"),
+            Err(err) => tx
+                .send(MainThreadJob::err(Box::new(err)))
+                .expect("Failed to emit error"),
         });
         self.io_tx.send(job);
 

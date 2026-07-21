@@ -63,7 +63,7 @@ impl Manager {
     where
         A: Asset,
         S: SourceFor<A>,
-        L: Loader<A, S> + 'static,
+        L: Loader<A, S> + Send + Sync + 'static,
     {
         self.registry
             .entry(TypeId::of::<A>())
