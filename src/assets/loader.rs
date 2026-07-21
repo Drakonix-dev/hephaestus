@@ -9,7 +9,11 @@ pub(crate) type BuildFn =
     Box<dyn FnOnce(&(dyn Any), &mut (dyn ErasedRegistry)) -> Result<(), AssetError> + Send>;
 
 pub(crate) trait ErasedLoader: Send + Sync {
-    fn parse<'a>(self: Arc<Self>, raw: Box<dyn Any>) -> Result<BuildFn, AssetError>;
+    fn parse<'a>(
+        self: Arc<Self>,
+        src: Arc<dyn Any + Send + Sync>,
+        raw: Box<dyn Any>,
+    ) -> Result<BuildFn, AssetError>;
 }
 
 pub(crate) struct LoaderCell<A, S, L>(L, PhantomData<fn() -> (A, S)>);
@@ -26,8 +30,13 @@ where
     S: SourceFor<A, Raw: Send>,
     L: Loader<A, S, Parsed: Send> + Send + Sync + 'static,
 {
-    fn parse(self: Arc<Self>, raw: Box<dyn Any>) -> Result<BuildFn, AssetError> {
+    fn parse(
+        self: Arc<Self>,
+        src: Arc<dyn Any + Send + Sync>,
+        raw: Box<dyn Any>,
+    ) -> Result<BuildFn, AssetError> {
         let parsed = self.0.parse(
+            &*src.downcast::<S>().expect("Mistyped src for LoaderCell"),
             *raw.downcast::<S::Raw>()
                 .expect("Mistyped raw for LoaderCell"),
         )?;
@@ -54,6 +63,6 @@ where
     type Built: 'static;
     type Parsed: 'static;
 
-    fn parse(&self, raw: S::Raw) -> Result<Self::Parsed, AssetError>;
+    fn parse(&self, src: &S, raw: S::Raw) -> Result<Self::Parsed, AssetError>;
     fn build(&self, parsed: Self::Parsed) -> Result<Self::Built, AssetError>;
 }

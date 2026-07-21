@@ -66,9 +66,9 @@ impl Pool {
         }
     }
 
-    pub(crate) fn load<A: Asset, S: SourceFor<A, Raw: Send> + Send>(
+    pub(crate) fn load<A: Asset, S: SourceFor<A, Raw: Send> + Send + Sync>(
         &mut self,
-        src: S,
+        src: Arc<S>,
         priority: Priority,
         loader: Arc<dyn ErasedLoader>,
         submit: Box<dyn FnOnce(BuildFn) + Send>,
@@ -78,7 +78,9 @@ impl Pool {
         let job = Box::new(move || {
             if let Ok(raw) = src.fetch() {
                 ptx.send(Box::new(move || {
-                    let build = loader.parse(Box::new(raw)).expect("Failed to parse asset");
+                    let build = loader
+                        .parse(src, Box::new(raw))
+                        .expect("Failed to parse asset");
                     submit(build);
                 }))
                 .expect("Failed to send parse job");

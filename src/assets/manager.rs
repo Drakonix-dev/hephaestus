@@ -48,7 +48,7 @@ impl Manager {
         self.pool.close()
     }
 
-    pub fn load<A: Asset, S: SourceFor<A, Raw: Send> + Send>(
+    pub fn load<A: Asset, S: SourceFor<A, Raw: Send> + Send + Sync>(
         &mut self,
         src: S,
         priority: Priority,
@@ -81,7 +81,9 @@ impl Manager {
             ))
             .expect("Failed to send");
         });
-        self.pool.load(src, priority, loader, submit);
+
+        let src = Arc::new(src);
+        self.pool.load(src.clone(), priority, loader, submit);
 
         Ok(handle)
     }
