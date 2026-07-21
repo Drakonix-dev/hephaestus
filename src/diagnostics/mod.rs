@@ -1,6 +1,5 @@
 mod capture;
 mod config;
-
 pub mod diag;
 
 pub use capture::{

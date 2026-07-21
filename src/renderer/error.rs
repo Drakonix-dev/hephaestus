@@ -1,20 +1,12 @@
-use std::{error::Error, path::PathBuf};
+use std::error::Error;
+
+use crate::assets::AssetError;
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum RenderError {
-    #[error("asset not found: {name}")]
-    AssetNotFound { name: String },
-
-    #[error("failed to load asset '{}'", path.display())]
-    AssetLoad {
-        path: PathBuf,
-        #[source]
-        source: Box<dyn Error + Send + Sync>,
-    },
-
-    #[error("invalid asset definition: {detail}")]
-    BadAsset { detail: String },
+    #[error(transparent)]
+    Asset(#[from] AssetError),
 
     #[error("invalid render graph: {detail}")]
     BadRenderGraph { detail: String },

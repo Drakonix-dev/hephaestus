@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-// RenderPhase defines a phase of rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RenderPhase {
     pub domain: RenderDomain,
@@ -43,7 +42,6 @@ impl PartialOrd for RenderPhase {
     }
 }
 
-// RenderDomain defines the different domains of rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RenderDomain {
     UI,
@@ -52,7 +50,6 @@ pub enum RenderDomain {
     Other(u32),
 }
 
-// SubPhase defines the different sub-phases of rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SubPhase {
     Opaque,

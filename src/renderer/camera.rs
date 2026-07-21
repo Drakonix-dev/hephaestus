@@ -1,7 +1,36 @@
 use crate::{
+    events::Event,
     math::{Mat4, view},
-    renderer::Viewport,
 };
+
+#[derive(Debug, Clone, Copy)]
+pub struct Viewport {
+    width: u32,
+    height: u32,
+}
+
+impl Viewport {
+    pub(crate) fn new(width: u32, height: u32) -> Self {
+        Self {
+            width: width.max(1),
+            height: height.max(1),
+        }
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn aspect_ratio(&self) -> f32 {
+        self.width as f32 / self.height as f32
+    }
+}
+
+impl Event for Viewport {}
 
 pub enum Projection {
     Perspective(PerspectiveProjection),

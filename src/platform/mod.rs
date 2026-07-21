@@ -1,9 +1,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod winit;
 
-use std::{error::Error, io};
-
 use crate::renderer::Viewport;
+use std::{error::Error, io};
 
 pub(crate) trait HasViewport {
     fn get_viewport(&self) -> Viewport;

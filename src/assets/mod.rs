@@ -1,15 +1,13 @@
+pub(crate) mod loader;
+mod manager;
+pub(crate) mod pool;
+pub(crate) mod registry;
+
+use std::error::Error;
 pub use {
     loader::Loader as AssetLoader, manager::Manager as AssetManager,
     pool::Priority as AssetPriority, registry::Handle as AssetHandle,
 };
-
-pub(crate) mod loader;
-pub(crate) mod pool;
-pub(crate) mod registry;
-
-mod manager;
-
-use std::error::Error;
 
 pub trait Asset: 'static {}
 

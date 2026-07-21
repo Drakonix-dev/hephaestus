@@ -1,20 +1,18 @@
-pub use api::{Application, ApplicationContext, ApplicationInstance, EngineError};
-pub use platform::PlatformError;
-
+mod api;
 pub mod assets;
 pub mod buffers;
+pub(crate) mod channels;
 pub mod commands;
 pub mod config;
 pub mod diagnostics;
 pub mod events;
+pub(crate) mod macros;
 pub mod math;
+mod platform;
 pub mod renderer;
 
-pub(crate) mod channels;
-pub(crate) mod macros;
-
-mod api;
-mod platform;
+pub use api::{Application, ApplicationContext, ApplicationInstance, EngineError};
+pub use platform::PlatformError;
 
 use crate::{config::EngineConfig, renderer::RenderGraph};
 
