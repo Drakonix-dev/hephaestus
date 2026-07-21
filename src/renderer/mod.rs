@@ -16,7 +16,7 @@ mod error;
 
 use std::collections::HashMap;
 
-use crate::{diagnostics::diag, math::Mat4};
+use crate::{assets::AssetManager, diagnostics::diag, math::Mat4};
 
 pub(crate) trait RenderFrame<'a> {
     fn execute_commands(

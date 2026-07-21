@@ -92,7 +92,7 @@ impl<A: Application> AppState<A> {
         let mut renderer_handle = RendererHandle::new(writer);
 
         let mut assets = AssetManager::new(&self.cfg);
-        let backend = pollster::block_on(WgpuRenderer::new(&self.cfg, window))?;
+        let backend = pollster::block_on(WgpuRenderer::new(&self.cfg, window, &mut assets))?;
         let renderer = Renderer::new(backend, &self.graph, reader)?;
 
         let runtime_config = RuntimeConfig::from(&self.cfg);

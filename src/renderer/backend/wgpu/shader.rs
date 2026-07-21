@@ -1,17 +1,61 @@
-use std::{collections::HashMap, fs};
+use std::{borrow::Cow, collections::HashMap, fs, sync::Arc};
 
-use crate::renderer::{
-    BindGroupLayout, BindingType, RenderError, ShaderDefinition, ShaderHandle, ShaderStage,
+use crate::{
+    assets::{AssetError, AssetLoader, SourceFor},
+    renderer::{
+        BindGroupLayout, BindingType, RenderError, ShaderDefinition, ShaderHandle, ShaderStage,
+        api::Shader,
+    },
 };
 
-pub(crate) struct ShaderManager {
-    shaders: HashMap<ShaderHandle, ShaderInstance>,
+pub(crate) struct ShaderInstanceV2 {
+    pub(crate) layout: wgpu::BindGroupLayout,
+    pub(crate) module: wgpu::ShaderModule,
+}
+
+pub(crate) struct ShaderLoader {
+    device: Arc<wgpu::Device>,
+}
+
+impl ShaderLoader {
+    pub(crate) fn new(device: Arc<wgpu::Device>) -> Self {
+        Self { device }
+    }
+}
+
+impl AssetLoader<Shader, ShaderDefinition> for ShaderLoader {
+    type Built = ShaderInstanceV2;
+    type Parsed = <ShaderDefinition as SourceFor<Shader>>::Raw;
+
+    fn parse(&self, raw: Self::Parsed) -> Result<Self::Parsed, AssetError> {
+        Ok(raw)
+    }
+
+    fn build(&self, parsed: Self::Parsed) -> Result<Self::Built, AssetError> {
+        let cow = String::from_utf8(parsed.2).expect("Invalid shader file");
+
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(parsed.0.to_str().unwrap_or("unknown_shader")),
+                source: wgpu::ShaderSource::Wgsl(Cow::Owned(cow)),
+            });
+
+        Ok(ShaderInstanceV2 {
+            layout: parsed.1.to_wgpu(self.device.as_ref()),
+            module,
+        })
+    }
 }
 
 pub(crate) struct ShaderInstance {
     pub(crate) handle: ShaderHandle,
     pub(crate) layout: wgpu::BindGroupLayout,
     pub(crate) module: wgpu::ShaderModule,
+}
+
+pub(crate) struct ShaderManager {
+    shaders: HashMap<ShaderHandle, ShaderInstance>,
 }
 
 impl ShaderManager {

@@ -28,14 +28,14 @@ pub enum AssetStatus {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AssetError {
-    #[error("asset loading failed")]
-    LoadFailed {
+    #[error("asset not found: {t}x{id}")]
+    NotFound { id: usize, t: String },
+
+    #[error("asset operation failed")]
+    Other {
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
-
-    #[error("asset not found: {t}x{id}")]
-    NotFound { id: usize, t: String },
 
     #[error("asset cannot be handled: {t}")]
     UnhandledAsset { t: String },

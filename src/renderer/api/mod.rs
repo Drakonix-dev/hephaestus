@@ -5,7 +5,7 @@ pub use graph::{RenderDomain, RenderGraph, RenderPhase, SubPhase};
 pub use material::{MaterialDefinition, MaterialHandle, MaterialParams, MaterialUniforms};
 pub use mesh::{MeshDefinition, MeshHandle, Vertex};
 pub use shader::{
-    BindGroupLayout, BindingDesc, BindingType, ShaderDefinition, ShaderHandle, ShaderStage,
+    BindGroupLayout, BindingDesc, BindingType, Shader, ShaderDefinition, ShaderHandle, ShaderStage,
 };
 pub use texture::{TextureDefinition, TextureDimension, TextureHandle};
 

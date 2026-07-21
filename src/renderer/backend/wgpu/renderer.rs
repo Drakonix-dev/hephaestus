@@ -3,6 +3,7 @@ use std::sync::Arc;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use crate::{
+    assets::AssetManager,
     config::EngineConfig,
     diagnostics::diag,
     math::Mat4,
@@ -17,7 +18,7 @@ use crate::{
             material::MaterialManager,
             mesh::MeshManager,
             pipeline::{DEPTH_FORMAT, PipelineManager, RenderState},
-            shader::ShaderManager,
+            shader::{ShaderLoader, ShaderManager},
             texture::TextureManager,
         },
     },
@@ -73,7 +74,7 @@ pub struct Renderer<W: Window> {
     config: Option<wgpu::SurfaceConfiguration>,
     depth_view: Option<wgpu::TextureView>,
     desired_present_mode: PresentMode,
-    device: wgpu::Device,
+    device: Arc<wgpu::Device>,
     globals: FrameGlobals,
     materials: MaterialManager,
     meshes: MeshManager,
@@ -88,7 +89,11 @@ pub struct Renderer<W: Window> {
 }
 
 impl<W: Window> Renderer<W> {
-    pub(crate) async fn new(cfg: &EngineConfig, window: W) -> Result<Self, RenderError> {
+    pub(crate) async fn new<'a>(
+        cfg: &EngineConfig,
+        window: W,
+        assets: &'a mut AssetManager,
+    ) -> Result<Self, RenderError> {
         let window = Arc::new(window);
 
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -124,6 +129,9 @@ impl<W: Window> Renderer<W> {
                 trace: wgpu::Trace::Off,
             })
             .await?;
+        let device = Arc::new(device);
+
+        assets.register(ShaderLoader::new(device.clone()));
 
         let globals = FrameGlobals::new(&device);
         let model_pool = ModelUniformPool::new(&device);

@@ -1,6 +1,12 @@
-use std::{num::NonZeroU64, path::PathBuf};
+use std::{fs, num::NonZeroU64, path::PathBuf};
 
-use crate::macros::define_handle;
+use crate::{
+    assets::{Asset, AssetError, SourceFor},
+    macros::define_handle,
+};
+
+pub struct Shader;
+impl Asset for Shader {}
 
 // ShaderHandle defines a handle for a specific shader.
 define_handle!(ShaderHandle);
@@ -10,10 +16,24 @@ pub struct ShaderDefinition {
     pub source: PathBuf,
 }
 
+impl SourceFor<Shader> for ShaderDefinition {
+    type Raw = (PathBuf, BindGroupLayout, Vec<u8>);
+
+    fn fetch(&self) -> Result<Self::Raw, AssetError> {
+        fs::read(self.source.as_path())
+            .map(|v| (self.source.clone(), self.layout.clone(), v))
+            .map_err(|err| AssetError::Other {
+                source: Box::new(err),
+            })
+    }
+}
+
+#[derive(Clone)]
 pub struct BindGroupLayout {
     pub entries: Vec<BindingDesc>,
 }
 
+#[derive(Clone)]
 pub struct BindingDesc {
     pub binding: u32,
     pub ty: BindingType,
