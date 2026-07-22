@@ -1,60 +1,52 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
-use image::ImageReader;
-
-use crate::renderer::{RenderError, TextureDefinition, TextureDimension, TextureHandle};
-
-pub(crate) struct TextureManager {
-    textures: HashMap<TextureHandle, TextureInstance>,
-}
+use crate::{
+    assets::{AssetError, AssetLoader, SourceFor},
+    renderer::{Texture, TextureDefinition, TextureDimension},
+};
 
 pub(crate) struct TextureInstance {
     pub(crate) view: wgpu::TextureView,
 }
 
-impl TextureManager {
-    pub(crate) fn new() -> Self {
-        Self {
-            textures: HashMap::new(),
-        }
+pub(crate) struct TextureLoader {
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
+}
+
+impl AssetLoader<Texture, TextureDefinition> for TextureLoader {
+    type Built = TextureInstance;
+    type Parsed = <TextureDefinition as SourceFor<Texture>>::Raw;
+
+    fn parse(
+        &self,
+        _: &TextureDefinition,
+        raw: <TextureDefinition as SourceFor<Texture>>::Raw,
+    ) -> Result<Self::Parsed, AssetError> {
+        Ok(raw)
     }
 
-    pub(crate) fn create_texture(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        handle: TextureHandle,
-        def: &TextureDefinition,
-    ) -> Result<(), RenderError> {
-        let image = ImageReader::open(def.source.as_path())
-            .map_err(|err| RenderError::AssetLoad {
-                path: def.source.clone(),
-                source: Box::new(err),
-            })?
-            .decode()
-            .map_err(|err| RenderError::AssetLoad {
-                path: def.source.clone(),
-                source: Box::new(err),
-            })?;
-
-        let rgba = image.to_rgba8();
-
+    fn build(
+        &self,
+        src: &TextureDefinition,
+        parsed: Self::Parsed,
+    ) -> Result<Self::Built, AssetError> {
         use image::GenericImageView;
-        let (width, height) = image.dimensions();
+        let (width, height) = parsed.dimensions();
 
-        let (dimension, depth_or_layers) = match def.dimension {
+        let (dimension, depth_or_layers) = match src.dimension {
             TextureDimension::D1 => (wgpu::TextureDimension::D1, 1),
             TextureDimension::D2 => (wgpu::TextureDimension::D2, 1),
             TextureDimension::D3 => (
                 wgpu::TextureDimension::D3,
-                def.depth.ok_or_else(|| RenderError::BadAsset {
-                    detail: String::from("No depth for D3 texture"),
+                src.depth.ok_or_else(|| AssetError::BadAsset {
+                    reason: "No depth for D3 texture",
                 })?,
             ),
         };
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Texture"),
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(src.source.to_str().unwrap_or("unknown_texture")),
             size: wgpu::Extent3d {
                 width,
                 height,
@@ -68,14 +60,14 @@ impl TextureManager {
             view_formats: &[],
         });
 
-        queue.write_texture(
+        self.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &rgba,
+            &parsed,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width),
@@ -84,15 +76,8 @@ impl TextureManager {
             texture.size(),
         );
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        self.textures
-            .insert(handle, TextureInstance { view: texture_view });
-
-        Ok(())
-    }
-
-    pub(crate) fn get_texture(&self, handle: &TextureHandle) -> Option<&TextureInstance> {
-        self.textures.get(handle)
+        Ok(TextureInstance {
+            view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+        })
     }
 }

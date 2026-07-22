@@ -1,9 +1,11 @@
-mod globals;
-mod material;
-mod mesh;
-mod pipeline;
-mod renderer;
 mod shader;
 mod texture;
 
-pub(crate) use renderer::*;
+use std::sync::Arc;
+
+use crate::{assets::AssetManager, renderer::wgpu::shader::ShaderLoader};
+
+fn register_loaders(device: Arc<wgpu::Device>, mgr: &mut AssetManager) {
+    mgr.register(ShaderLoader::new(device.clone()));
+}
+

@@ -1,4 +1,6 @@
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
+
+use image::{ImageBuffer, ImageReader, Rgba};
 
 use crate::assets::{Asset, AssetError, SourceFor};
 
@@ -12,12 +14,15 @@ pub struct TextureDefinition {
 }
 
 impl SourceFor<Texture> for TextureDefinition {
-    type Raw = Vec<u8>;
+    type Raw = ImageBuffer<Rgba<u8>, Vec<u8>>;
 
     fn fetch(&self) -> Result<Self::Raw, AssetError> {
-        fs::read(self.source.as_path()).map_err(|err| AssetError::Other {
-            source: Box::new(err),
-        })
+        let image = ImageReader::open(self.source.as_path())?
+            .decode()
+            .map_err(|err| AssetError::OperationFailed {
+                source: Box::new(err),
+            })?;
+        Ok(image.to_rgba8())
     }
 }
 

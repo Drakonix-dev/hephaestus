@@ -1,16 +1,17 @@
-pub(crate) mod loader;
 mod manager;
+
+pub(crate) mod loader;
 pub(crate) mod pool;
 pub(crate) mod registry;
+
+use std::{error::Error, io};
+
+use crate::events::Event;
 
 pub use {
     loader::Loader as AssetLoader, manager::Manager as AssetManager,
     pool::Priority as AssetPriority, registry::Handle as AssetHandle,
 };
-
-use std::error::Error;
-
-use crate::events::Event;
 
 pub(crate) const INVARIANT: &str = "asset type-erasure invariant violated";
 
@@ -44,18 +45,24 @@ pub enum AssetStatus {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AssetError {
+    #[error("bad asset: {reason}")]
+    BadAsset { reason: &'static str },
+
+    #[error(transparent)]
+    IO(#[from] io::Error),
+
     #[error("asset not found: {t}x{id}")]
     NotFound { id: usize, t: String },
 
-    #[error("asset operation failed")]
-    Other {
+    #[error("operation failed")]
+    OperationFailed {
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
 
     #[error("asset cannot be handled: {t}")]
-    UnhandledAsset { t: String },
+    UnhandledAsset { t: &'static str },
 
     #[error("asset type unknown: {t}")]
-    UnknownAsset { t: String },
+    UnknownAsset { t: &'static str },
 }

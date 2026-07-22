@@ -61,7 +61,7 @@ impl Manager {
             self.registry
                 .get_mut(&TypeId::of::<A>())
                 .ok_or(AssetError::UnknownAsset {
-                    t: type_name::<A>().to_string(),
+                    t: type_name::<A>(),
                 })?;
 
         let key = (TypeId::of::<A>(), TypeId::of::<S>());
@@ -69,7 +69,7 @@ impl Manager {
             .loaders
             .get(&key)
             .ok_or(AssetError::UnhandledAsset {
-                t: type_name::<A>().to_string(),
+                t: type_name::<A>(),
             })?
             .clone();
 
@@ -104,14 +104,15 @@ impl Manager {
         Ok(handle)
     }
 
-    pub(crate) fn process_queued_assets(&mut self, events: &mut EventBus) -> Result<(), AssetError> {
+    pub(crate) fn process_queued_assets(
+        &mut self,
+        events: &mut EventBus,
+    ) -> Result<(), AssetError> {
         while let Ok(job) = self.qrx.try_recv() {
             let reg = self
                 .registry
                 .get_mut(&job.type_id)
-                .ok_or(AssetError::UnknownAsset {
-                    t: job.type_name.to_string(),
-                })?;
+                .ok_or(AssetError::UnknownAsset { t: job.type_name })?;
 
             (job.apply)(reg.as_mut(), events)?;
         }

@@ -35,14 +35,14 @@ where
         src: Arc<dyn Any + Send + Sync>,
         raw: Box<dyn Any>,
     ) -> Result<BuildFn, AssetError> {
-        let parsed = self.0.parse(
-            &*src.downcast::<S>().expect(INVARIANT),
-            *raw.downcast::<S::Raw>().expect(INVARIANT),
-        )?;
+        let src = *src.downcast::<S>().expect(INVARIANT);
+        let parsed = self
+            .0
+            .parse(&src, *raw.downcast::<S::Raw>().expect(INVARIANT))?;
 
         Ok(Box::new(move |handle, reg| {
             let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
-            let built = self.0.build(parsed)?;
+            let built = self.0.build(&src, parsed)?;
 
             reg.as_any_mut()
                 .downcast_mut::<Registry<A, <L as Loader<A, S>>::Built>>()
@@ -61,5 +61,5 @@ where
     type Parsed: 'static;
 
     fn parse(&self, src: &S, raw: S::Raw) -> Result<Self::Parsed, AssetError>;
-    fn build(&self, parsed: Self::Parsed) -> Result<Self::Built, AssetError>;
+    fn build(&self, src: &S, parsed: Self::Parsed) -> Result<Self::Built, AssetError>;
 }

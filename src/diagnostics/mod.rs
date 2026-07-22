@@ -1,16 +1,17 @@
 mod capture;
 mod config;
+
 pub mod diag;
+
+use tracing_subscriber::{
+    EnvFilter, Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
+};
 
 pub use capture::{
     CaptureGuard, CaptureHandle, CapturedRecord, FieldValue, RecordKind, capture,
     capture_with_capacity,
 };
 pub use config::{DiagnosticsConfig, OtlpConfig};
-
-use tracing_subscriber::{
-    EnvFilter, Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
-};
 
 pub struct DiagnosticsGuard {
     capture: CaptureHandle,

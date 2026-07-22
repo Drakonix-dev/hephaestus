@@ -14,9 +14,7 @@ impl SourceFor<Shader> for ShaderDefinition {
     type Raw = Vec<u8>;
 
     fn fetch(&self) -> Result<Self::Raw, AssetError> {
-        fs::read(self.source.as_path()).map_err(|err| AssetError::Other {
-            source: Box::new(err),
-        })
+        fs::read(self.source.as_path()).into()
     }
 }
 

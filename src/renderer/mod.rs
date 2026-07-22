@@ -6,7 +6,10 @@ mod material;
 mod mesh;
 mod shader;
 mod texture;
+
 pub(crate) mod wgpu;
+
+pub mod old;
 
 pub use camera::{OrthographicProjection, PerspectiveProjection, Projection, Viewport};
 pub use commands::{DrawCommand, DrawMesh, Renderable, Transform};
