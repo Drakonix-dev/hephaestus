@@ -11,10 +11,10 @@ pub struct MeshDefinition {
 }
 
 impl SourceFor<Mesh> for MeshDefinition {
-    type Raw = Self;
+    type Raw = ();
 
     fn fetch(&self) -> Result<Self::Raw, AssetError> {
-        Ok(*self.clone())
+        Ok(())
     }
 }
 

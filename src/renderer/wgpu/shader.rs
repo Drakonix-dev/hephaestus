@@ -1,7 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use crate::{
-    assets::{AssetError, AssetLoader, SourceFor},
+    assets::{AssetError, AssetLoader, SourceFor, graph::Node},
     renderer::{BindGroupLayout, BindingType, Shader, ShaderDefinition, ShaderStage},
 };
 
@@ -29,8 +29,9 @@ impl AssetLoader<Shader, ShaderDefinition> for ShaderLoader {
         src: &ShaderDefinition,
         parsed: Self::Parsed,
     ) -> Result<Self::Built, AssetError> {
-        let cow =
-            String::from_utf8(parsed).map_err(|err| AssetError::OperationFailed(Box::new(err)))?;
+        let cow = String::from_utf8(parsed).map_err(|err| AssetError::OperationFailed {
+            source: Box::new(err),
+        })?;
 
         let module = self
             .device
@@ -49,8 +50,8 @@ impl AssetLoader<Shader, ShaderDefinition> for ShaderLoader {
         &self,
         _: &ShaderDefinition,
         raw: <ShaderDefinition as SourceFor<Shader>>::Raw,
-    ) -> Result<Self::Parsed, AssetError> {
-        Ok(raw)
+    ) -> Result<(Self::Parsed, Option<Vec<Node>>), AssetError> {
+        Ok((raw, None))
     }
 }
 

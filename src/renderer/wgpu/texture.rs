@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    assets::{AssetError, AssetLoader, SourceFor},
+    assets::{AssetError, AssetLoader, SourceFor, graph::Node},
     renderer::{Texture, TextureDefinition, TextureDimension},
 };
 
@@ -29,7 +29,6 @@ impl AssetLoader<Texture, TextureDefinition> for TextureLoader {
         src: &TextureDefinition,
         parsed: Self::Parsed,
     ) -> Result<Self::Built, AssetError> {
-        use image::GenericImageView;
         let (width, height) = parsed.dimensions();
 
         let (dimension, depth_or_layers) = match src.dimension {
@@ -83,7 +82,7 @@ impl AssetLoader<Texture, TextureDefinition> for TextureLoader {
         &self,
         _: &TextureDefinition,
         raw: <TextureDefinition as SourceFor<Texture>>::Raw,
-    ) -> Result<Self::Parsed, AssetError> {
-        Ok(raw)
+    ) -> Result<(Self::Parsed, Option<Vec<Node>>), AssetError> {
+        Ok((raw, None))
     }
 }

@@ -8,7 +8,6 @@ use crate::{
 pub struct Material;
 impl Asset for Material {}
 
-#[derive(Clone)]
 pub struct MaterialDefinition {
     pub shader: AssetHandle<Shader>,
     pub textures: Vec<AssetHandle<Texture>>,
@@ -16,10 +15,10 @@ pub struct MaterialDefinition {
 }
 
 impl SourceFor<Material> for MaterialDefinition {
-    type Raw = Self;
+    type Raw = ();
 
     fn fetch(&self) -> Result<Self::Raw, AssetError> {
-        Ok(self.clone())
+        Ok(())
     }
 }
 

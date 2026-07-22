@@ -65,7 +65,7 @@ where
 
     fn build(&self, src: &S, parsed: Self::Parsed) -> Result<Self::Built, AssetError>;
 
-    fn deps(&self, src: &S) -> Option<Vec<Node>> {
+    fn deps(&self, _src: &S) -> Option<Vec<Node>> {
         None
     }
 

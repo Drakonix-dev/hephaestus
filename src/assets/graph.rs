@@ -3,7 +3,7 @@ use std::{any::TypeId, collections::HashMap};
 use crate::assets::{Asset, registry::Handle};
 
 #[derive(PartialEq, Eq, Hash)]
-pub(crate) struct Node {
+pub struct Node {
     generation: u64,
     id: usize,
     t: TypeId,
@@ -47,6 +47,9 @@ impl Graph {
     }
 
     pub(crate) fn add_edge(&mut self, node: Node, edge: Edge) {
-        self.nodes.entry(node).or_insert_with(Vec::new()).push(edge)
+        self.nodes
+            .entry(node)
+            .or_insert_with(|| Vec::new())
+            .push(edge)
     }
 }

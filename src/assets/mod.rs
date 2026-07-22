@@ -1,9 +1,10 @@
 mod manager;
 
-pub(crate) mod graph;
 pub(crate) mod loader;
 pub(crate) mod pool;
 pub(crate) mod registry;
+
+pub mod graph;
 
 use std::{error::Error, io};
 
