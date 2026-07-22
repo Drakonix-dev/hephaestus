@@ -14,6 +14,12 @@ pub(crate) struct TextureLoader {
     queue: Arc<wgpu::Queue>,
 }
 
+impl TextureLoader {
+    pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+        Self { device, queue }
+    }
+}
+
 impl AssetLoader<Texture, TextureDefinition> for TextureLoader {
     type Built = TextureInstance;
     type Parsed = <TextureDefinition as SourceFor<Texture>>::Raw;
