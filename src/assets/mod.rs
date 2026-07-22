@@ -12,6 +12,8 @@ use std::error::Error;
 
 use crate::events::Event;
 
+pub(crate) const INVARIANT: &str = "asset type-erasure invariant violated";
+
 pub trait Asset: 'static {}
 
 pub struct AssetFailed<A: Asset> {

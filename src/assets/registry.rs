@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
 };
 
-use crate::assets::{AssetError, AssetStatus};
+use crate::assets::{AssetError, AssetStatus, INVARIANT};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Handle<T> {
@@ -168,7 +168,7 @@ impl<Id: 'static, V: 'static> ErasedRegistry for Registry<Id, V> {
     }
 
     fn ready(&mut self, id: usize, generation: u64, v: Box<dyn Any>) -> Result<(), AssetError> {
-        let state = v.downcast::<V>().expect("Mistyped state for registry");
+        let state = v.downcast::<V>().expect(INVARIANT);
         self.update(Handle::new(id, generation), SlotState::Ready(*state))
     }
 

@@ -91,12 +91,11 @@ impl Manager {
                 Ok(())
             });
 
-            tx.send(QueuedAsset {
+            let _ = tx.send(QueuedAsset {
                 apply,
                 type_id: TypeId::of::<A>(),
                 type_name: type_name::<A>(),
-            })
-            .expect("Failed to send");
+            });
         });
 
         let src = Arc::new(src);

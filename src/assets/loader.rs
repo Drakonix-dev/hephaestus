@@ -1,7 +1,7 @@
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use crate::assets::{
-    Asset, AssetError, SourceFor,
+    Asset, AssetError, INVARIANT, SourceFor,
     registry::{ErasedRegistry, Handle, Registry, SlotState},
 };
 
@@ -36,20 +36,17 @@ where
         raw: Box<dyn Any>,
     ) -> Result<BuildFn, AssetError> {
         let parsed = self.0.parse(
-            &*src.downcast::<S>().expect("Mistyped src for LoaderCell"),
-            *raw.downcast::<S::Raw>()
-                .expect("Mistyped raw for LoaderCell"),
+            &*src.downcast::<S>().expect(INVARIANT),
+            *raw.downcast::<S::Raw>().expect(INVARIANT),
         )?;
 
         Ok(Box::new(move |handle, reg| {
-            let h = handle
-                .downcast_ref::<Handle<A>>()
-                .expect("Mistyped handle for LoaderCell");
+            let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
             let built = self.0.build(parsed)?;
 
             reg.as_any_mut()
                 .downcast_mut::<Registry<A, <L as Loader<A, S>>::Built>>()
-                .expect("Mistyped registry for LoaderCell")
+                .expect(INVARIANT)
                 .update(*h, SlotState::Ready(built))
         }))
     }

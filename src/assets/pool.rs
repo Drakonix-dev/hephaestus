@@ -77,14 +77,13 @@ impl Pool {
 
         let job = Box::new(move || match src.fetch() {
             Ok(raw) => {
-                ptx.send(Box::new(move || {
+                let _ = ptx.send(Box::new(move || {
                     submit(loader.parse(src, Box::new(raw)));
-                }))
-                .expect("Failed to send parse job");
+                }));
             }
             Err(e) => submit(Err(e)),
         });
-        self.io_tx.send(job).expect("Failed to send io job");
+        let _ = self.io_tx.send(job);
     }
 }
 
@@ -120,10 +119,21 @@ impl ParseWorker {
     }
 
     fn work(self) {
-        select_biased!(
-            recv(self.rxs[Priority::Critical as usize]) -> job => (job.expect("Failed to recv job"))(),
-            recv(self.rxs[Priority::Streaming as usize]) -> job => (job.expect("Failed to recv job"))(),
-            recv(self.rxs[Priority::Idle as usize]) -> job => (job.expect("Failed to recv job"))(),
-        );
+        loop {
+            select_biased!(
+                recv(self.rxs[Priority::Critical as usize]) -> job => match job {
+                    Ok(job) => job(),
+                    Err(_) => break,
+                },
+                recv(self.rxs[Priority::Streaming as usize]) -> job => match job {
+                    Ok(job) => job(),
+                    Err(_) => break,
+                },
+                recv(self.rxs[Priority::Idle as usize]) -> job => match job {
+                    Ok(job) => job(),
+                    Err(_) => break,
+                },
+            );
+        }
     }
 }
