@@ -64,10 +64,5 @@ where
     type Parsed: 'static;
 
     fn build(&self, src: &S, parsed: Self::Parsed) -> Result<Self::Built, AssetError>;
-
-    fn deps(&self, _src: &S) -> Option<Vec<Node>> {
-        None
-    }
-
     fn parse(&self, src: &S, raw: S::Raw) -> Result<(Self::Parsed, Option<Vec<Node>>), AssetError>;
 }
