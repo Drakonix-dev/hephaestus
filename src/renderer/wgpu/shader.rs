@@ -24,14 +24,6 @@ impl AssetLoader<Shader, ShaderDefinition> for ShaderLoader {
     type Built = ShaderInstance;
     type Parsed = <ShaderDefinition as SourceFor<Shader>>::Raw;
 
-    fn parse(
-        &self,
-        _: &ShaderDefinition,
-        raw: <ShaderDefinition as SourceFor<Shader>>::Raw,
-    ) -> Result<Self::Parsed, AssetError> {
-        Ok(raw)
-    }
-
     fn build(
         &self,
         src: &ShaderDefinition,
@@ -51,6 +43,14 @@ impl AssetLoader<Shader, ShaderDefinition> for ShaderLoader {
             layout: src.layout.to_wgpu(self.device.as_ref()),
             module,
         })
+    }
+
+    fn parse(
+        &self,
+        _: &ShaderDefinition,
+        raw: <ShaderDefinition as SourceFor<Shader>>::Raw,
+    ) -> Result<Self::Parsed, AssetError> {
+        Ok(raw)
     }
 }
 

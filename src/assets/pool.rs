@@ -8,6 +8,7 @@ use crossbeam_channel::{Receiver, Sender, select_biased};
 use crate::{
     assets::{
         Asset, AssetError, SourceFor,
+        graph::Node,
         loader::{BuildFn, ErasedLoader},
     },
     config::EngineConfig,
@@ -20,6 +21,8 @@ pub enum Priority {
 }
 
 const TOTAL_PRIORITIES: usize = Priority::Idle as usize + 1;
+
+pub(crate) type SubmitFn = Box<dyn FnOnce(Result<(BuildFn, Option<Vec<Node>>), AssetError>) + Send>;
 
 pub(crate) struct Pool {
     handles: Vec<JoinHandle<()>>,
@@ -71,7 +74,7 @@ impl Pool {
         src: Arc<S>,
         priority: Priority,
         loader: Arc<dyn ErasedLoader>,
-        submit: Box<dyn FnOnce(Result<BuildFn, AssetError>) + Send>,
+        submit: SubmitFn,
     ) {
         let ptx = self.p_txs[priority as usize].clone();
 

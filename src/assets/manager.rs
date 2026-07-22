@@ -10,6 +10,7 @@ use std::{
 use crate::{
     assets::{
         Asset, AssetError, AssetFailed, AssetLoaded, AssetStatus, SourceFor,
+        graph::{Graph, Node},
         loader::{BuildFn, ErasedLoader, Loader, LoaderCell},
         pool::{Pool, Priority},
         registry::{ErasedRegistry, Handle, Registry},
@@ -28,6 +29,7 @@ struct QueuedAsset {
 }
 
 pub struct Manager {
+    dependencies: Graph,
     loaders: HashMap<(TypeId, TypeId), Arc<dyn ErasedLoader>>,
     pool: Pool,
     registry: HashMap<TypeId, Box<dyn ErasedRegistry>>,
@@ -40,6 +42,7 @@ impl Manager {
         let (tx, rx) = mpsc::channel();
 
         Self {
+            dependencies: Graph::new(),
             loaders: HashMap::new(),
             pool: Pool::new(cfg),
             registry: HashMap::new(),
@@ -77,26 +80,28 @@ impl Manager {
         let handle = Handle::new(id, generation);
 
         let tx = self.qtx.clone();
-        let submit = Box::new(move |result: Result<BuildFn, AssetError>| {
-            let apply: ApplyFn = Box::new(move |reg, events| {
-                match result.and_then(|build| build(&handle, reg)) {
-                    Ok(()) => events.publish(AssetLoaded { handle }),
-                    Err(e) => {
-                        let reason = e.to_string();
-                        reg.failed(handle.id, handle.generation, Box::new(e))?;
-                        events.publish(AssetFailed { handle, reason });
+        let submit = Box::new(
+            move |result: Result<(BuildFn, Option<Vec<Node>>), AssetError>| {
+                let apply: ApplyFn = Box::new(move |reg, events| {
+                    match result.and_then(|(build, deps)| build(&handle, reg)) {
+                        Ok(()) => events.publish(AssetLoaded { handle }),
+                        Err(e) => {
+                            let reason = e.to_string();
+                            reg.failed(handle.id, handle.generation, Box::new(e))?;
+                            events.publish(AssetFailed { handle, reason });
+                        }
                     }
-                }
 
-                Ok(())
-            });
+                    Ok(())
+                });
 
-            let _ = tx.send(QueuedAsset {
-                apply,
-                type_id: TypeId::of::<A>(),
-                type_name: type_name::<A>(),
-            });
-        });
+                let _ = tx.send(QueuedAsset {
+                    apply,
+                    type_id: TypeId::of::<A>(),
+                    type_name: type_name::<A>(),
+                });
+            },
+        );
 
         let src = Arc::new(src);
         self.pool.load(src.clone(), priority, loader, submit);

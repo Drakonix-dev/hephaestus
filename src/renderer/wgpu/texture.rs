@@ -24,14 +24,6 @@ impl AssetLoader<Texture, TextureDefinition> for TextureLoader {
     type Built = TextureInstance;
     type Parsed = <TextureDefinition as SourceFor<Texture>>::Raw;
 
-    fn parse(
-        &self,
-        _: &TextureDefinition,
-        raw: <TextureDefinition as SourceFor<Texture>>::Raw,
-    ) -> Result<Self::Parsed, AssetError> {
-        Ok(raw)
-    }
-
     fn build(
         &self,
         src: &TextureDefinition,
@@ -85,5 +77,13 @@ impl AssetLoader<Texture, TextureDefinition> for TextureLoader {
         Ok(TextureInstance {
             view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
         })
+    }
+
+    fn parse(
+        &self,
+        _: &TextureDefinition,
+        raw: <TextureDefinition as SourceFor<Texture>>::Raw,
+    ) -> Result<Self::Parsed, AssetError> {
+        Ok(raw)
     }
 }

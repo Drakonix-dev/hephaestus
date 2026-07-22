@@ -2,6 +2,7 @@ use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use crate::assets::{
     Asset, AssetError, INVARIANT, SourceFor,
+    graph::Node,
     registry::{ErasedRegistry, Handle, Registry, SlotState},
 };
 
@@ -13,7 +14,7 @@ pub(crate) trait ErasedLoader: Send + Sync {
         self: Arc<Self>,
         src: Arc<dyn Any + Send + Sync>,
         raw: Box<dyn Any>,
-    ) -> Result<BuildFn, AssetError>;
+    ) -> Result<(BuildFn, Option<Vec<Node>>), AssetError>;
 }
 
 pub(crate) struct LoaderCell<A, S, L>(L, PhantomData<fn() -> (A, S)>);
@@ -34,13 +35,13 @@ where
         self: Arc<Self>,
         src: Arc<dyn Any + Send + Sync>,
         raw: Box<dyn Any>,
-    ) -> Result<BuildFn, AssetError> {
+    ) -> Result<(BuildFn, Option<Vec<Node>>), AssetError> {
         let src = *src.downcast::<S>().expect(INVARIANT);
-        let parsed = self
+        let (parsed, deps) = self
             .0
             .parse(&src, *raw.downcast::<S::Raw>().expect(INVARIANT))?;
 
-        Ok(Box::new(move |handle, reg| {
+        let build = Box::new(move |handle, reg| {
             let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
             let built = self.0.build(&src, parsed)?;
 
@@ -48,7 +49,9 @@ where
                 .downcast_mut::<Registry<A, <L as Loader<A, S>>::Built>>()
                 .expect(INVARIANT)
                 .update(*h, SlotState::Ready(built))
-        }))
+        });
+
+        Ok((build, deps))
     }
 }
 
@@ -60,6 +63,11 @@ where
     type Built: 'static;
     type Parsed: 'static;
 
-    fn parse(&self, src: &S, raw: S::Raw) -> Result<Self::Parsed, AssetError>;
     fn build(&self, src: &S, parsed: Self::Parsed) -> Result<Self::Built, AssetError>;
+
+    fn deps(&self, src: &S) -> Option<Vec<Node>> {
+        None
+    }
+
+    fn parse(&self, src: &S, raw: S::Raw) -> Result<(Self::Parsed, Option<Vec<Node>>), AssetError>;
 }
