@@ -1,7 +1,7 @@
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use crate::assets::{
-    Asset, AssetError, INVARIANT, SourceFor,
+    AssetError, BuiltAs, INVARIANT, SourceFor,
     registry::{ErasedRegistry, Handle, Registry, SlotState},
 };
 
@@ -24,11 +24,11 @@ impl<A, S, L> LoaderCell<A, S, L> {
     }
 }
 
-impl<A, S, L> ErasedLoader for LoaderCell<A, S, L>
+impl<B, S, L> ErasedLoader for LoaderCell<B, S, L>
 where
-    A: Asset,
-    S: SourceFor<A>,
-    L: Loader<A, S>,
+    B: BuiltAs,
+    S: SourceFor<B>,
+    L: Loader<B, S>,
 {
     fn parse(
         self: Arc<Self>,
@@ -36,30 +36,35 @@ where
         raw: Box<dyn Any>,
     ) -> Result<BuildFn, AssetError> {
         let src = src.downcast::<S>().expect(INVARIANT);
-        let parsed = self
-            .0
-            .parse(&src, *raw.downcast::<S::Raw>().expect(INVARIANT))?;
+        let parsed = self.0.parse(
+            &src,
+            *raw.downcast::<S::Raw>().expect(INVARIANT),
+            &mut Deps {},
+        )?;
 
         Ok(Box::new(move |handle, reg| {
-            let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
-            let built = self.0.build(&src, parsed)?;
+            let h = handle.downcast_ref::<Handle<B>>().expect(INVARIANT);
+            let built = self.0.build(&src, parsed, &Fetch {})?;
 
             reg.as_any_mut()
-                .downcast_mut::<Registry<A, <L as Loader<A, S>>::Built>>()
+                .downcast_mut::<Registry<B, B::Built>>()
                 .expect(INVARIANT)
                 .update(*h, SlotState::Ready(built))
         }))
     }
 }
 
-pub trait Loader<A, S>: Send + Sync + 'static
+pub trait Loader<B, S>: Send + Sync + 'static
 where
-    A: Asset,
-    S: SourceFor<A>,
+    B: BuiltAs,
+    S: SourceFor<B>,
 {
-    type Built: 'static;
     type Parsed: Send + 'static;
 
-    fn build(&self, src: &S, parsed: Self::Parsed) -> Result<Self::Built, AssetError>;
-    fn parse(&self, src: &S, raw: S::Raw) -> Result<Self::Parsed, AssetError>;
+    fn build(&self, src: &S, parsed: Self::Parsed, fetch: &Fetch) -> Result<B::Built, AssetError>;
+    fn parse(&self, src: &S, raw: S::Raw, deps: &mut Deps) -> Result<Self::Parsed, AssetError>;
 }
+
+pub struct Deps;
+
+pub struct Fetch;

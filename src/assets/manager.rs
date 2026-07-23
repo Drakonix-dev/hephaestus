@@ -9,7 +9,8 @@ use std::{
 
 use crate::{
     assets::{
-        Asset, AssetError, AssetFailed, AssetLoaded, AssetStatus, SourceFor,
+        AssetError, AssetStatus, BuiltAs, SourceFor,
+        events::{AssetFailed, AssetLoaded},
         graph::Graph,
         loader::{BuildFn, ErasedLoader, Loader, LoaderCell},
         pool::{Pool, Priority},
@@ -55,24 +56,24 @@ impl Manager {
         self.pool.close()
     }
 
-    pub fn load<A: Asset, S: SourceFor<A>>(
+    pub fn load<B: BuiltAs, S: SourceFor<B>>(
         &mut self,
         src: S,
         priority: Priority,
-    ) -> Result<Handle<A>, AssetError> {
+    ) -> Result<Handle<B>, AssetError> {
         let registry =
             self.registry
-                .get_mut(&TypeId::of::<A>())
+                .get_mut(&TypeId::of::<B>())
                 .ok_or(AssetError::UnknownAsset {
-                    t: type_name::<A>(),
+                    t: type_name::<B>(),
                 })?;
 
-        let key = (TypeId::of::<A>(), TypeId::of::<S>());
+        let key = (TypeId::of::<B>(), TypeId::of::<S>());
         let loader = self
             .loaders
             .get(&key)
             .ok_or(AssetError::UnhandledAsset {
-                t: type_name::<A>(),
+                t: type_name::<B>(),
             })?
             .clone();
 
@@ -96,8 +97,8 @@ impl Manager {
 
             let _ = tx.send(QueuedAsset {
                 apply,
-                type_id: TypeId::of::<A>(),
-                type_name: type_name::<A>(),
+                type_id: TypeId::of::<B>(),
+                type_name: type_name::<B>(),
             });
         });
 
@@ -123,26 +124,26 @@ impl Manager {
         Ok(())
     }
 
-    pub fn register<A, S, L>(&mut self, l: L)
+    pub fn register<B, S, L>(&mut self, l: L)
     where
-        A: Asset,
-        S: SourceFor<A>,
-        L: Loader<A, S>,
+        B: BuiltAs,
+        S: SourceFor<B>,
+        L: Loader<B, S>,
     {
         self.registry
-            .entry(TypeId::of::<A>())
-            .or_insert_with(|| Box::new(Registry::<A, L::Built>::new()));
+            .entry(TypeId::of::<B>())
+            .or_insert_with(|| Box::new(Registry::<B, B::Built>::new()));
         self.loaders
-            .entry((TypeId::of::<A>(), TypeId::of::<S>()))
-            .or_insert_with(|| Arc::new(LoaderCell::<A, S, L>::new(l)));
+            .entry((TypeId::of::<B>(), TypeId::of::<S>()))
+            .or_insert_with(|| Arc::new(LoaderCell::<B, S, L>::new(l)));
     }
 
-    pub fn status<A: Asset>(&self, handle: Handle<A>) -> Result<AssetStatus, AssetError> {
+    pub fn status<B: BuiltAs>(&self, handle: Handle<B>) -> Result<AssetStatus, AssetError> {
         self.registry
-            .get(&TypeId::of::<A>())
+            .get(&TypeId::of::<B>())
             .ok_or(AssetError::NotFound {
                 id: handle.id,
-                t: type_name::<A>().to_string(),
+                t: type_name::<B>().to_string(),
             })?
             .status(handle.id, handle.generation)
     }

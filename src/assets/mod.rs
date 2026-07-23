@@ -4,38 +4,38 @@ pub(crate) mod loader;
 pub(crate) mod pool;
 pub(crate) mod registry;
 
+pub mod events;
 pub mod graph;
 
 use std::{error::Error, io};
 
-use crate::events::Event;
-
 pub use {
-    loader::Loader as AssetLoader, manager::Manager as AssetManager,
-    pool::Priority as AssetPriority, registry::Handle as AssetHandle,
+    loader::{Deps as AssetDeps, Fetch as AssetFetch, Loader as AssetLoader},
+    manager::Manager as AssetManager,
+    pool::Priority as AssetPriority,
+    registry::Handle as AssetHandle,
 };
 
 pub(crate) const INVARIANT: &str = "asset type-erasure invariant violated";
 
 pub trait Asset: 'static {}
 
-pub struct AssetFailed<A: Asset> {
-    pub handle: AssetHandle<A>,
-    pub reason: String,
-}
-
-impl<A: Asset> Event for AssetFailed<A> {}
-
-pub struct AssetLoaded<A: Asset> {
-    pub handle: AssetHandle<A>,
-}
-
-impl<A: Asset> Event for AssetLoaded<A> {}
-
 pub trait SourceFor<A: Asset>: Send + Sync + 'static {
     type Raw: Send;
 
     fn fetch(&self) -> Result<Self::Raw, AssetError>;
+}
+
+pub(crate) trait BuiltAs: Asset {
+    type Built: 'static;
+}
+
+pub trait GameAsset: Asset {
+    type Built: 'static;
+}
+
+impl<T: GameAsset> BuiltAs for T {
+    type Built = <T as GameAsset>::Built;
 }
 
 pub enum AssetStatus {
