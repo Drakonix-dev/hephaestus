@@ -32,8 +32,8 @@ pub struct AssetLoaded<A: Asset> {
 
 impl<A: Asset> Event for AssetLoaded<A> {}
 
-pub trait SourceFor<A: Asset>: 'static {
-    type Raw;
+pub trait SourceFor<A: Asset>: Send + Sync + 'static {
+    type Raw: Send;
 
     fn fetch(&self) -> Result<Self::Raw, AssetError>;
 }

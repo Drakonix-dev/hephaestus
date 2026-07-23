@@ -10,7 +10,7 @@ use std::{
 use crate::{
     assets::{
         Asset, AssetError, AssetFailed, AssetLoaded, AssetStatus, SourceFor,
-        graph::{Graph, Node},
+        graph::Graph,
         loader::{BuildFn, ErasedLoader, Loader, LoaderCell},
         pool::{Pool, Priority},
         registry::{ErasedRegistry, Handle, Registry},
@@ -55,7 +55,7 @@ impl Manager {
         self.pool.close()
     }
 
-    pub fn load<A: Asset, S: SourceFor<A, Raw: Send> + Send + Sync>(
+    pub fn load<A: Asset, S: SourceFor<A>>(
         &mut self,
         src: S,
         priority: Priority,
@@ -80,28 +80,26 @@ impl Manager {
         let handle = Handle::new(id, generation);
 
         let tx = self.qtx.clone();
-        let submit = Box::new(
-            move |result: Result<(BuildFn, Option<Vec<Node>>), AssetError>| {
-                let apply: ApplyFn = Box::new(move |reg, events| {
-                    match result.and_then(|(build, deps)| build(&handle, reg)) {
-                        Ok(()) => events.publish(AssetLoaded { handle }),
-                        Err(e) => {
-                            let reason = e.to_string();
-                            reg.failed(handle.id, handle.generation, Box::new(e))?;
-                            events.publish(AssetFailed { handle, reason });
-                        }
+        let submit = Box::new(move |result: Result<BuildFn, AssetError>| {
+            let apply: ApplyFn = Box::new(move |reg, events| {
+                match result.and_then(|build| build(&handle, reg)) {
+                    Ok(()) => events.publish(AssetLoaded { handle }),
+                    Err(e) => {
+                        let reason = e.to_string();
+                        reg.failed(handle.id, handle.generation, Box::new(e))?;
+                        events.publish(AssetFailed { handle, reason });
                     }
+                }
 
-                    Ok(())
-                });
+                Ok(())
+            });
 
-                let _ = tx.send(QueuedAsset {
-                    apply,
-                    type_id: TypeId::of::<A>(),
-                    type_name: type_name::<A>(),
-                });
-            },
-        );
+            let _ = tx.send(QueuedAsset {
+                apply,
+                type_id: TypeId::of::<A>(),
+                type_name: type_name::<A>(),
+            });
+        });
 
         let src = Arc::new(src);
         self.pool.load(src.clone(), priority, loader, submit);
@@ -128,8 +126,8 @@ impl Manager {
     pub fn register<A, S, L>(&mut self, l: L)
     where
         A: Asset,
-        S: SourceFor<A, Raw: Send>,
-        L: Loader<A, S, Parsed: Send> + Send + Sync + 'static,
+        S: SourceFor<A>,
+        L: Loader<A, S>,
     {
         self.registry
             .entry(TypeId::of::<A>())
