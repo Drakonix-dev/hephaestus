@@ -1,7 +1,7 @@
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use crate::assets::{
-    AssetError, BuiltAs, Handle, INVARIANT, SourceFor,
+    AssetError, BuiltAs, Dependency, Handle, INVARIANT, Priority, SourceFor,
     registry::{ErasedRegistry, Registry, SlotState},
 };
 
@@ -39,7 +39,7 @@ where
         let parsed = self.0.parse(
             &src,
             *raw.downcast::<S::Raw>().expect(INVARIANT),
-            &mut Deps {},
+            &mut Deps::new(),
         )?;
 
         Ok(Box::new(move |handle, reg| {
@@ -65,5 +65,66 @@ where
     fn parse(&self, src: &S, raw: S::Raw, deps: &mut Deps) -> Result<Self::Parsed, AssetError>;
 }
 
-pub struct Deps;
+trait ErasedDependency: Any {}
+trait ErasedHandle: Any {}
+
+struct DependencyCell<B: BuiltAs, S: SourceFor<B>> {
+    priority: Priority,
+    src: S,
+    _marker: PhantomData<fn() -> B>,
+}
+
+impl<B: BuiltAs, S: SourceFor<B>> DependencyCell<B, S> {
+    fn new(src: S, priority: Priority) -> Self {
+        Self {
+            priority,
+            src,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<B: BuiltAs, S: SourceFor<B>> ErasedDependency for DependencyCell<B, S> {}
+
+struct HandleCell<B: BuiltAs> {
+    handle: Handle<B>,
+    priority: Priority,
+}
+
+impl<B: BuiltAs> HandleCell<B> {
+    fn new(handle: Handle<B>, priority: Priority) -> Self {
+        Self { handle, priority }
+    }
+}
+
+impl<B: BuiltAs> ErasedHandle for HandleCell<B> {}
+
+pub struct Deps {
+    deps: Vec<Box<dyn ErasedDependency>>,
+    handles: Vec<Box<dyn ErasedHandle>>,
+}
+
+impl Deps {
+    fn new() -> Self {
+        Self {
+            deps: Vec::new(),
+            handles: Vec::new(),
+        }
+    }
+
+    pub fn require<B: BuiltAs, S: SourceFor<B>>(
+        &mut self,
+        src: S,
+        priority: Priority,
+    ) -> Dependency<B> {
+        self.deps.push(Box::new(DependencyCell::new(src, priority)));
+        Dependency::new(self.deps.len())
+    }
+
+    pub fn require_handle<B: BuiltAs>(&mut self, handle: Handle<B>, priority: Priority) {
+        self.handles
+            .push(Box::new(HandleCell::new(handle, priority)));
+    }
+}
+
 pub struct Fetch;

@@ -79,28 +79,12 @@ pub enum Priority {
 
 const TOTAL_PRIORITIES: usize = Priority::Idle as usize + 1;
 
-pub struct Dependency<B: BuiltAs, S: SourceFor<B>> {
-    priority: Priority,
-    src: S,
-    _marker: PhantomData<fn() -> B>,
-}
-
-impl<B: BuiltAs, S: SourceFor<B>> Dependency<B, S> {
-    pub(crate) fn new(src: S, priority: Priority) -> Self {
-        Self {
-            priority,
-            src,
-            _marker: PhantomData,
-        }
-    }
-}
-
-pub struct DependencyHandle<T> {
+pub struct Dependency<T> {
     pub(crate) idx: usize,
     _marker: PhantomData<fn() -> T>,
 }
 
-impl<T> DependencyHandle<T> {
+impl<T> Dependency<T> {
     pub(crate) fn new(idx: usize) -> Self {
         Self {
             idx,
