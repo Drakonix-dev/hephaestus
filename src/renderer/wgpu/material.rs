@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
 use crate::{
-    assets::{AssetError, AssetHandle, AssetLoader, SourceFor, graph},
+    assets::{AssetError, AssetHandle, AssetLoader, BuiltAs, SourceFor, graph},
     renderer::{Material, MaterialDefinition, Shader},
 };
+
+impl BuiltAs for Material {
+    type Built = MaterialInstance;
+}
 
 pub(crate) struct MaterialInstance {
     pub(crate) bind_group: wgpu::BindGroup,
@@ -21,7 +25,6 @@ impl MaterialLoader {
 }
 
 impl AssetLoader<Material, MaterialDefinition> for MaterialLoader {
-    type Built = MaterialInstance;
     type Parsed = <MaterialDefinition as SourceFor<Material>>::Raw;
 
     fn build(&self, src: &MaterialDefinition, _: Self::Parsed) -> Result<Self::Built, AssetError> {

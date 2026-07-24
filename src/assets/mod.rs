@@ -10,7 +10,7 @@ pub mod graph;
 use std::{error::Error, io};
 
 pub use {
-    loader::{Deps as AssetDeps, Fetch as AssetFetch, Loader as AssetLoader},
+    loader::{DepRef, Deps, Fetch, Loader as AssetLoader},
     manager::Manager as AssetManager,
     pool::Priority as AssetPriority,
     registry::Handle as AssetHandle,
