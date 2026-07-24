@@ -1,4 +1,8 @@
-use std::{any::Any, marker::PhantomData, sync::Arc};
+use std::{
+    any::{Any, type_name},
+    marker::PhantomData,
+    sync::Arc,
+};
 
 use crate::assets::{
     AssetError, BuiltAs, Dependency, Handle, INVARIANT, Priority, SourceFor,
@@ -6,7 +10,7 @@ use crate::assets::{
 };
 
 pub(crate) type BuildFn =
-    Box<dyn FnOnce(&(dyn Any), &mut (dyn ErasedRegistry)) -> Result<(), AssetError> + Send>;
+    Box<dyn FnOnce(&dyn Any, &mut dyn ErasedRegistry) -> Result<(), AssetError> + Send>;
 
 pub(crate) trait ErasedLoader: Send + Sync {
     fn parse<'a>(
@@ -127,4 +131,27 @@ impl Deps {
     }
 }
 
-pub struct Fetch;
+pub struct Fetch {
+    built: Vec<Arc<dyn Any>>,
+}
+
+impl Fetch {
+    fn new() -> Self {
+        Self { built: Vec::new() }
+    }
+
+    pub fn get<B: BuiltAs>(&self, dependency: Dependency<B>) -> Result<&B::Built, AssetError> {
+        let built = self
+            .built
+            .get(dependency.idx)
+            .ok_or(AssetError::NotFound {
+                id: dependency.idx,
+                t: type_name::<B>(),
+            })?
+            .downcast_ref::<B::Built>()
+            .expect(INVARIANT);
+        Ok(built)
+    }
+
+    pub fn get_handle<B: BuiltAs>(&self, handle: Handle<B>) -> Result<&B::Built, AssetError> {}
+}

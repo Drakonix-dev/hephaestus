@@ -103,7 +103,7 @@ pub enum AssetError {
     IO(#[from] io::Error),
 
     #[error("asset not found: {t}x{id}")]
-    NotFound { id: usize, t: String },
+    NotFound { id: usize, t: &'static str },
 
     #[error("operation failed")]
     OperationFailed {

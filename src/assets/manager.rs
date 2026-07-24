@@ -143,7 +143,7 @@ impl Manager {
             .get(&TypeId::of::<B>())
             .ok_or(AssetError::NotFound {
                 id: handle.id,
-                t: type_name::<B>().to_string(),
+                t: type_name::<B>(),
             })?
             .status(handle.id, handle.generation)
     }

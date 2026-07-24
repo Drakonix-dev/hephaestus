@@ -69,7 +69,7 @@ impl<Id, V> Registry<Id, V> {
     pub(crate) fn get(&self, handle: &Handle<Id>) -> Result<&SlotState<V>, AssetError> {
         if handle.id >= self.items.len() {
             return Err(AssetError::NotFound {
-                t: type_name::<Id>().to_string(),
+                t: type_name::<Id>(),
                 id: handle.id,
             });
         }
@@ -77,7 +77,7 @@ impl<Id, V> Registry<Id, V> {
         let slot = &self.items[handle.id];
         if slot.generation != handle.generation {
             return Err(AssetError::NotFound {
-                t: type_name::<Id>().to_string(),
+                t: type_name::<Id>(),
                 id: handle.id,
             });
         }
