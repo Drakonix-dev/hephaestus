@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
-    assets::{Asset, AssetError, AssetHandle, SourceFor},
+    assets::{Asset, AssetError, Handle, SourceFor},
     renderer::{Shader, Texture},
 };
 
@@ -9,8 +9,8 @@ pub struct Material;
 impl Asset for Material {}
 
 pub struct MaterialDefinition {
-    pub shader: AssetHandle<Shader>,
-    pub textures: Vec<AssetHandle<Texture>>,
+    pub shader: Handle<Shader>,
+    pub textures: Vec<Handle<Texture>>,
     pub uniforms: MaterialUniforms,
 }
 

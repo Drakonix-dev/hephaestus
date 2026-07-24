@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
 use crate::{
-    assets::{AssetError, AssetLoader, SourceFor, graph::Node},
+    assets::{AssetError, BuiltAs, Deps, Fetch, Loader, SourceFor},
     renderer::{Texture, TextureDefinition, TextureDimension},
 };
+
+impl BuiltAs for Texture {
+    type Built = TextureInstance;
+}
 
 pub(crate) struct TextureInstance {
     pub(crate) view: wgpu::TextureView,
@@ -20,15 +24,15 @@ impl TextureLoader {
     }
 }
 
-impl AssetLoader<Texture, TextureDefinition> for TextureLoader {
-    type Built = TextureInstance;
+impl Loader<Texture, TextureDefinition> for TextureLoader {
     type Parsed = <TextureDefinition as SourceFor<Texture>>::Raw;
 
     fn build(
         &self,
         src: &TextureDefinition,
         parsed: Self::Parsed,
-    ) -> Result<Self::Built, AssetError> {
+        _: &Fetch,
+    ) -> Result<TextureInstance, AssetError> {
         let (width, height) = parsed.dimensions();
 
         let (dimension, depth_or_layers) = match src.dimension {
@@ -82,7 +86,8 @@ impl AssetLoader<Texture, TextureDefinition> for TextureLoader {
         &self,
         _: &TextureDefinition,
         raw: <TextureDefinition as SourceFor<Texture>>::Raw,
-    ) -> Result<(Self::Parsed, Option<Vec<Node>>), AssetError> {
-        Ok((raw, None))
+        _: &mut Deps,
+    ) -> Result<Self::Parsed, AssetError> {
+        Ok(raw)
     }
 }

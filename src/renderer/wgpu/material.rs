@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    assets::{AssetError, AssetHandle, AssetLoader, BuiltAs, SourceFor, graph},
+    assets::{AssetError, BuiltAs, Deps, Fetch, Handle, Loader, Priority, SourceFor},
     renderer::{Material, MaterialDefinition, Shader},
 };
 
@@ -11,7 +11,7 @@ impl BuiltAs for Material {
 
 pub(crate) struct MaterialInstance {
     pub(crate) bind_group: wgpu::BindGroup,
-    pub(crate) shader: AssetHandle<Shader>,
+    pub(crate) shader: Handle<Shader>,
 }
 
 pub(crate) struct MaterialLoader {
@@ -24,10 +24,15 @@ impl MaterialLoader {
     }
 }
 
-impl AssetLoader<Material, MaterialDefinition> for MaterialLoader {
+impl Loader<Material, MaterialDefinition> for MaterialLoader {
     type Parsed = <MaterialDefinition as SourceFor<Material>>::Raw;
 
-    fn build(&self, src: &MaterialDefinition, _: Self::Parsed) -> Result<Self::Built, AssetError> {
+    fn build(
+        &self,
+        src: &MaterialDefinition,
+        _: Self::Parsed,
+        _: &Fetch,
+    ) -> Result<MaterialInstance, AssetError> {
         todo!("still need to implement this")
     }
 
@@ -35,14 +40,14 @@ impl AssetLoader<Material, MaterialDefinition> for MaterialLoader {
         &self,
         src: &MaterialDefinition,
         _: <MaterialDefinition as SourceFor<Material>>::Raw,
-    ) -> Result<(Self::Parsed, Option<Vec<graph::Node>>), AssetError> {
-        let mut deps = Vec::new();
-        deps.push(src.shader.into());
+        deps: &mut Deps,
+    ) -> Result<Self::Parsed, AssetError> {
+        deps.require_handle(src.shader, Priority::Critical);
 
-        for h in src.textures.iter() {
-            deps.push((*h).into());
-        }
+        src.textures.iter().for_each(|h| {
+            deps.require_handle(*h, Priority::Critical);
+        });
 
-        Ok(((), Some(deps)))
+        Ok(())
     }
 }

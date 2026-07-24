@@ -1,9 +1,13 @@
 use std::{borrow::Cow, sync::Arc};
 
 use crate::{
-    assets::{AssetError, AssetLoader, SourceFor, graph::Node},
+    assets::{AssetError, BuiltAs, Deps, Fetch, Loader, SourceFor},
     renderer::{BindGroupLayout, BindingType, Shader, ShaderDefinition, ShaderStage},
 };
+
+impl BuiltAs for Shader {
+    type Built = ShaderInstance;
+}
 
 pub(crate) struct ShaderInstance {
     pub(crate) layout: wgpu::BindGroupLayout,
@@ -20,15 +24,15 @@ impl ShaderLoader {
     }
 }
 
-impl AssetLoader<Shader, ShaderDefinition> for ShaderLoader {
-    type Built = ShaderInstance;
+impl Loader<Shader, ShaderDefinition> for ShaderLoader {
     type Parsed = <ShaderDefinition as SourceFor<Shader>>::Raw;
 
     fn build(
         &self,
         src: &ShaderDefinition,
         parsed: Self::Parsed,
-    ) -> Result<Self::Built, AssetError> {
+        _: &Fetch,
+    ) -> Result<ShaderInstance, AssetError> {
         let cow = String::from_utf8(parsed).map_err(|err| AssetError::OperationFailed {
             source: Box::new(err),
         })?;
@@ -50,8 +54,9 @@ impl AssetLoader<Shader, ShaderDefinition> for ShaderLoader {
         &self,
         _: &ShaderDefinition,
         raw: <ShaderDefinition as SourceFor<Shader>>::Raw,
-    ) -> Result<(Self::Parsed, Option<Vec<Node>>), AssetError> {
-        Ok((raw, None))
+        _: &mut Deps,
+    ) -> Result<Self::Parsed, AssetError> {
+        Ok(raw)
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::{
-    assets::AssetHandle,
+    assets::Handle,
     channels::define_channel,
     math::{Mat4, Transform2D, Transform3D},
     renderer::{Material, Mesh, RenderPhase},
@@ -22,8 +22,8 @@ pub enum DrawCommand {
 }
 
 pub struct DrawMesh {
-    pub mesh: AssetHandle<Mesh>,
-    pub material: AssetHandle<Material>,
+    pub mesh: Handle<Mesh>,
+    pub material: Handle<Material>,
     pub transform: Transform,
 }
 

@@ -7,14 +7,14 @@ mod texture;
 use std::sync::Arc;
 
 use crate::{
-    assets::AssetManager,
+    assets::Manager,
     renderer::wgpu::{
         material::MaterialLoader, mesh::MeshLoader, pipeline::PipelineLoader, shader::ShaderLoader,
         texture::TextureLoader,
     },
 };
 
-fn register_loaders(mgr: &mut AssetManager, device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) {
+fn register_loaders(mgr: &mut Manager, device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) {
     mgr.register(MaterialLoader::new(device.clone()));
     mgr.register(MeshLoader::new(device.clone()));
     mgr.register(PipelineLoader::new(device.clone()));

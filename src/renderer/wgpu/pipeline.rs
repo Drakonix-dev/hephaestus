@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
 use crate::{
-    assets::{Asset, AssetError, AssetHandle, AssetLoader, SourceFor, graph::Node},
+    assets::{Asset, AssetError, BuiltAs, Deps, Fetch, Handle, Loader, Priority, SourceFor},
     renderer::Shader,
 };
 
 pub(crate) struct Pipeline;
 impl Asset for Pipeline {}
+
+impl BuiltAs for Pipeline {
+    type Built = PipelineInstance;
+}
 
 pub(crate) struct PipelineInstance {
     pub(crate) pipeline: wgpu::RenderPipeline,
@@ -21,7 +25,7 @@ pub(crate) struct PipelineDefinition {
     pub(crate) globals_layout: Arc<wgpu::BindGroupLayout>,
     pub(crate) model_layout: Arc<wgpu::BindGroupLayout>,
     pub(crate) render_state: RenderState,
-    pub(crate) shader: AssetHandle<Shader>,
+    pub(crate) shader: Handle<Shader>,
 }
 
 impl SourceFor<Pipeline> for PipelineDefinition {
@@ -42,11 +46,15 @@ impl PipelineLoader {
     }
 }
 
-impl AssetLoader<Pipeline, PipelineDefinition> for PipelineLoader {
-    type Built = PipelineInstance;
+impl Loader<Pipeline, PipelineDefinition> for PipelineLoader {
     type Parsed = <PipelineDefinition as SourceFor<Pipeline>>::Raw;
 
-    fn build(&self, src: &PipelineDefinition, _: Self::Parsed) -> Result<Self::Built, AssetError> {
+    fn build(
+        &self,
+        _: &PipelineDefinition,
+        _: Self::Parsed,
+        _: &Fetch,
+    ) -> Result<PipelineInstance, AssetError> {
         todo!("build the pipeline")
     }
 
@@ -54,10 +62,10 @@ impl AssetLoader<Pipeline, PipelineDefinition> for PipelineLoader {
         &self,
         src: &PipelineDefinition,
         _: <PipelineDefinition as SourceFor<Pipeline>>::Raw,
-    ) -> Result<(Self::Parsed, Option<Vec<Node>>), AssetError> {
-        let mut deps = Vec::new();
-        deps.push(src.shader.into());
+        deps: &mut Deps,
+    ) -> Result<Self::Parsed, AssetError> {
+        deps.require_handle(src.shader, Priority::Critical);
 
-        Ok(((), Some(deps)))
+        Ok(())
     }
 }

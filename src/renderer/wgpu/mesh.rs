@@ -3,9 +3,13 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    assets::{AssetError, AssetLoader, SourceFor, graph::Node},
+    assets::{AssetError, BuiltAs, Deps, Fetch, Loader, SourceFor},
     renderer::{Mesh, MeshDefinition},
 };
+
+impl BuiltAs for Mesh {
+    type Built = MeshInstance;
+}
 
 pub(crate) struct MeshInstance {
     pub(crate) index_buffer: wgpu::Buffer,
@@ -23,11 +27,15 @@ impl MeshLoader {
     }
 }
 
-impl AssetLoader<Mesh, MeshDefinition> for MeshLoader {
-    type Built = MeshInstance;
+impl Loader<Mesh, MeshDefinition> for MeshLoader {
     type Parsed = <MeshDefinition as SourceFor<Mesh>>::Raw;
 
-    fn build(&self, src: &MeshDefinition, _: Self::Parsed) -> Result<Self::Built, AssetError> {
+    fn build(
+        &self,
+        src: &MeshDefinition,
+        _: Self::Parsed,
+        _: &Fetch,
+    ) -> Result<MeshInstance, AssetError> {
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -55,7 +63,8 @@ impl AssetLoader<Mesh, MeshDefinition> for MeshLoader {
         &self,
         _: &MeshDefinition,
         _: <MeshDefinition as SourceFor<Mesh>>::Raw,
-    ) -> Result<(Self::Parsed, Option<Vec<Node>>), AssetError> {
-        Ok(((), None))
+        _: &mut Deps,
+    ) -> Result<Self::Parsed, AssetError> {
+        Ok(())
     }
 }
