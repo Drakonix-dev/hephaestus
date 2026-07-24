@@ -1,10 +1,8 @@
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use crate::assets::{
-    AssetError, BuiltAs, INVARIANT, SourceFor,
-    manager::Manager,
-    pool::Priority,
-    registry::{ErasedRegistry, Handle, Registry, SlotState},
+    AssetError, BuiltAs, Handle, INVARIANT, SourceFor,
+    registry::{ErasedRegistry, Registry, SlotState},
 };
 
 pub(crate) type BuildFn =
@@ -67,70 +65,5 @@ where
     fn parse(&self, src: &S, raw: S::Raw, deps: &mut Deps) -> Result<Self::Parsed, AssetError>;
 }
 
-trait ErasedHandle: Any {}
-
-impl<B: BuiltAs> ErasedHandle for Handle<B> {}
-
-trait ErasedDepDefinition: Any {}
-
-struct DepDefinition<B: BuiltAs, S: SourceFor<B>> {
-    priority: Priority,
-    src: S,
-    _marker: PhantomData<fn() -> (B, S)>,
-}
-
-impl<B: BuiltAs, S: SourceFor<B>> DepDefinition<B, S> {
-    fn new(src: S, priority: Priority) -> Self {
-        Self {
-            priority,
-            src,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<B: BuiltAs, S: SourceFor<B>> ErasedDepDefinition for DepDefinition<B, S> {}
-
-pub struct DepRef<T> {
-    idx: usize,
-    _marker: PhantomData<fn() -> T>,
-}
-
-impl<T> DepRef<T> {
-    fn new(idx: usize) -> Self {
-        Self {
-            idx,
-            _marker: PhantomData,
-        }
-    }
-}
-
-pub struct Deps {
-    definitions: Vec<Box<dyn ErasedDepDefinition>>,
-    handles: Vec<Box<dyn ErasedHandle>>,
-}
-
-impl Deps {
-    fn new() -> Self {
-        Self {
-            definitions: Vec::new(),
-            handles: Vec::new(),
-        }
-    }
-
-    pub fn require<B: BuiltAs, S: SourceFor<B>>(
-        &mut self,
-        src: S,
-        priority: Priority,
-    ) -> DepRef<B> {
-        self.definitions
-            .push(Box::new(DepDefinition::new(src, priority)));
-        DepRef::new(self.definitions.len())
-    }
-
-    pub fn require_handle<B: BuiltAs>(&mut self, handle: Handle<B>) {
-        self.handles.push(Box::new(handle));
-    }
-}
-
+pub struct Deps;
 pub struct Fetch;

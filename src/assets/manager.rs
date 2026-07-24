@@ -9,12 +9,12 @@ use std::{
 
 use crate::{
     assets::{
-        AssetError, AssetStatus, BuiltAs, SourceFor,
+        AssetError, AssetStatus, BuiltAs, Handle, Priority, SourceFor,
         events::{AssetFailed, AssetLoaded},
         graph::Graph,
         loader::{BuildFn, ErasedLoader, Loader, LoaderCell},
-        pool::{Pool, Priority},
-        registry::{ErasedRegistry, Handle, Registry},
+        pool::Pool,
+        registry::{ErasedRegistry, Registry},
     },
     config::EngineConfig,
     events::EventBus,

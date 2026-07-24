@@ -1,6 +1,6 @@
 use std::{any::TypeId, collections::HashMap};
 
-use crate::assets::{Asset, registry::Handle};
+use crate::assets::{Asset, Handle};
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct Node {

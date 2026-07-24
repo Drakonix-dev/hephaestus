@@ -7,19 +7,11 @@ use crossbeam_channel::{Receiver, Sender, select_biased};
 
 use crate::{
     assets::{
-        Asset, AssetError, SourceFor,
+        Asset, AssetError, Priority, SourceFor, TOTAL_PRIORITIES,
         loader::{BuildFn, ErasedLoader},
     },
     config::EngineConfig,
 };
-
-pub enum Priority {
-    Critical,
-    Streaming,
-    Idle,
-}
-
-const TOTAL_PRIORITIES: usize = Priority::Idle as usize + 1;
 
 pub(crate) type SubmitFn = Box<dyn FnOnce(Result<BuildFn, AssetError>) + Send>;
 

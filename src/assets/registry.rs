@@ -4,36 +4,7 @@ use std::{
     marker::PhantomData,
 };
 
-use crate::assets::{AssetError, AssetStatus, INVARIANT};
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Handle<T> {
-    pub(crate) generation: u64,
-    pub(crate) id: usize,
-    _marker: PhantomData<fn() -> T>,
-}
-
-impl<T> Handle<T> {
-    pub(crate) fn new(id: usize, generation: u64) -> Self {
-        Self {
-            generation,
-            id,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T> Clone for Handle<T> {
-    fn clone(&self) -> Self {
-        Self {
-            generation: self.generation.clone(),
-            id: self.id.clone(),
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<T> Copy for Handle<T> {}
+use crate::assets::{AssetError, AssetStatus, Handle, INVARIANT};
 
 pub(crate) struct Slot<T> {
     generation: u64,

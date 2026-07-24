@@ -1,5 +1,5 @@
 use crate::{
-    assets::{Asset, registry::Handle},
+    assets::{Asset, Handle},
     events::Event,
 };
 
