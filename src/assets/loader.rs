@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::assets::{
-    AssetError, BuiltAs, Dependency, Handle, INVARIANT, Priority, SourceFor,
+    AssetError, BuiltAs, Dependency, DependencyKind, Handle, INVARIANT, SourceFor,
     registry::{ErasedRegistry, Registry, SlotState},
 };
 
@@ -49,7 +49,7 @@ where
 
         Ok(Box::new(move |handle, reg| {
             let h = handle.downcast_ref::<Handle<B>>().expect(INVARIANT);
-            let built = self.0.build(&src, parsed, &Fetch {})?;
+            let built = self.0.build(&src, parsed, &Fetch::new())?;
 
             reg.as_any_mut()
                 .downcast_mut::<Registry<B, B::Built>>()
@@ -74,15 +74,15 @@ trait ErasedDependency: Any {}
 trait ErasedHandle: Any {}
 
 struct DependencyCell<B: BuiltAs, S: SourceFor<B>> {
-    priority: Priority,
+    kind: DependencyKind,
     src: S,
     _marker: PhantomData<fn() -> B>,
 }
 
 impl<B: BuiltAs, S: SourceFor<B>> DependencyCell<B, S> {
-    fn new(src: S, priority: Priority) -> Self {
+    fn new(src: S, kind: DependencyKind) -> Self {
         Self {
-            priority,
+            kind,
             src,
             _marker: PhantomData,
         }
@@ -93,12 +93,12 @@ impl<B: BuiltAs, S: SourceFor<B>> ErasedDependency for DependencyCell<B, S> {}
 
 struct HandleCell<B: BuiltAs> {
     handle: Handle<B>,
-    priority: Priority,
+    kind: DependencyKind,
 }
 
 impl<B: BuiltAs> HandleCell<B> {
-    fn new(handle: Handle<B>, priority: Priority) -> Self {
-        Self { handle, priority }
+    fn new(handle: Handle<B>, kind: DependencyKind) -> Self {
+        Self { handle, kind }
     }
 }
 
@@ -120,21 +120,20 @@ impl Deps {
     pub fn require<B: BuiltAs, S: SourceFor<B>>(
         &mut self,
         src: S,
-        priority: Priority,
+        kind: DependencyKind,
     ) -> Dependency<B> {
-        self.deps.push(Box::new(DependencyCell::new(src, priority)));
+        self.deps.push(Box::new(DependencyCell::new(src, kind)));
         Dependency::new(self.deps.len())
     }
 
-    pub fn require_handle<B: BuiltAs>(&mut self, handle: Handle<B>, priority: Priority) {
-        self.handles
-            .push(Box::new(HandleCell::new(handle, priority)));
+    pub fn require_handle<B: BuiltAs>(&mut self, handle: Handle<B>, kind: DependencyKind) {
+        self.handles.push(Box::new(HandleCell::new(handle, kind)));
     }
 }
 
 pub struct Fetch {
-    built: Vec<(Box<dyn Any>, Arc<dyn Any>)>,
-    handles: HashMap<(TypeId, usize, u64), Arc<dyn Any>>,
+    built: Vec<(Box<dyn Any>, Option<Arc<dyn Any>>)>,
+    handles: HashMap<(TypeId, usize, u64), Option<Arc<dyn Any>>>,
 }
 
 impl Fetch {
@@ -148,28 +147,35 @@ impl Fetch {
     pub fn get<B: BuiltAs>(
         &self,
         dependency: Dependency<B>,
-    ) -> Result<(Handle<B>, &B::Built), AssetError> {
-        let (handle, built) = self.built.get(dependency.idx).ok_or(AssetError::NotFound {
-            id: dependency.idx,
-            t: type_name::<B>(),
-        })?;
+    ) -> Result<(Handle<B>, Option<&B::Built>), AssetError> {
+        let (handle, built) = self
+            .built
+            .get(dependency.idx)
+            .ok_or(dependency.not_found())?;
 
-        Ok((
-            *handle.downcast_ref::<Handle<B>>().expect(INVARIANT),
-            built.downcast_ref::<B::Built>().expect(INVARIANT),
-        ))
+        let built = if let Some(b) = built {
+            Some(b.downcast_ref::<B::Built>().expect(INVARIANT))
+        } else {
+            None
+        };
+
+        Ok((*handle.downcast_ref::<Handle<B>>().expect(INVARIANT), built))
     }
 
-    pub fn get_handle<B: BuiltAs>(&self, handle: Handle<B>) -> Result<&B::Built, AssetError> {
+    pub fn get_handle<B: BuiltAs>(
+        &self,
+        handle: Handle<B>,
+    ) -> Result<Option<&B::Built>, AssetError> {
         let built = self
             .handles
             .get(&(TypeId::of::<B>(), handle.id, handle.generation))
-            .ok_or(AssetError::NotFound {
-                id: handle.id,
-                t: type_name::<B>(),
-            })?
-            .downcast_ref::<B::Built>()
-            .expect(INVARIANT);
+            .ok_or(handle.not_found())?;
+
+        let built = if let Some(b) = built {
+            Some(b.downcast_ref::<B::Built>().expect(INVARIANT))
+        } else {
+            None
+        };
 
         Ok(built)
     }

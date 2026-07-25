@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    assets::{Asset, AssetError, BuiltAs, Deps, Fetch, Handle, Loader, Priority, SourceFor},
+    assets::{Asset, AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle, Loader, SourceFor},
     renderer::{Shader, Vertex},
 };
 
@@ -55,7 +55,9 @@ impl Loader<Pipeline, PipelineDefinition> for PipelineLoader {
         _: Self::Parsed,
         fetch: &Fetch,
     ) -> Result<PipelineInstance, AssetError> {
-        let shader = fetch.get_handle(src.shader)?;
+        let shader = fetch
+            .get_handle(src.shader)?
+            .ok_or(src.shader.not_ready())?;
         let pipeline_layout = self
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -123,7 +125,7 @@ impl Loader<Pipeline, PipelineDefinition> for PipelineLoader {
         _: <PipelineDefinition as SourceFor<Pipeline>>::Raw,
         deps: &mut Deps,
     ) -> Result<Self::Parsed, AssetError> {
-        deps.require_handle(src.shader, Priority::Critical);
+        deps.require_handle(src.shader, DependencyKind::Required);
 
         Ok(())
     }

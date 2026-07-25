@@ -1,8 +1,4 @@
-use std::{
-    any::{Any, type_name},
-    error::Error,
-    marker::PhantomData,
-};
+use std::{any::Any, error::Error, marker::PhantomData};
 
 use crate::assets::{AssetError, AssetStatus, Handle, INVARIANT};
 
@@ -68,18 +64,12 @@ impl<Id, V> Registry<Id, V> {
 
     pub(crate) fn get(&self, handle: &Handle<Id>) -> Result<&SlotState<V>, AssetError> {
         if handle.id >= self.items.len() {
-            return Err(AssetError::NotFound {
-                t: type_name::<Id>(),
-                id: handle.id,
-            });
+            return Err(handle.not_found());
         }
 
         let slot = &self.items[handle.id];
         if slot.generation != handle.generation {
-            return Err(AssetError::NotFound {
-                t: type_name::<Id>(),
-                id: handle.id,
-            });
+            return Err(handle.not_found());
         }
 
         Ok(&slot.state)

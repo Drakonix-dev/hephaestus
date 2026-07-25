@@ -3,7 +3,7 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    assets::{AssetError, BuiltAs, Deps, Fetch, Handle, Loader, Priority, SourceFor},
+    assets::{AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle, Loader, SourceFor},
     renderer::{Material, MaterialDefinition, Shader},
 };
 
@@ -35,12 +35,15 @@ impl Loader<Material, MaterialDefinition> for MaterialLoader {
         _: Self::Parsed,
         fetch: &Fetch,
     ) -> Result<MaterialInstance, AssetError> {
-        let shader = fetch.get_handle(src.shader)?;
+        let shader = fetch
+            .get_handle(src.shader)?
+            .ok_or(src.shader.not_ready())?;
+
         let texture_views: Vec<&wgpu::TextureView> = src
             .textures
             .iter()
             .map(|h| {
-                let tex = fetch.get_handle(*h)?;
+                let tex = fetch.get_handle(*h)?.ok_or(h.not_ready())?;
                 Ok(&tex.view)
             })
             .collect::<Result<_, AssetError>>()?;
@@ -110,10 +113,10 @@ impl Loader<Material, MaterialDefinition> for MaterialLoader {
         _: <MaterialDefinition as SourceFor<Material>>::Raw,
         deps: &mut Deps,
     ) -> Result<Self::Parsed, AssetError> {
-        deps.require_handle(src.shader, Priority::Critical);
+        deps.require_handle(src.shader, DependencyKind::Required);
 
         src.textures.iter().for_each(|h| {
-            deps.require_handle(*h, Priority::Critical);
+            deps.require_handle(*h, DependencyKind::Required);
         });
 
         Ok(())

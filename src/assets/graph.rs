@@ -1,38 +1,33 @@
 use std::{any::TypeId, collections::HashMap};
 
-use crate::assets::{Asset, Handle};
+use crate::assets::{BuiltAs, DependencyKind, Handle};
 
 #[derive(PartialEq, Eq, Hash)]
-pub struct Node {
+pub(crate) struct Node {
     generation: u64,
     id: usize,
     t: TypeId,
 }
 
-impl<A: Asset> From<Handle<A>> for Node {
-    fn from(handle: Handle<A>) -> Node {
+impl<B: BuiltAs> From<Handle<B>> for Node {
+    fn from(handle: Handle<B>) -> Node {
         Node {
             generation: handle.generation,
             id: handle.id,
-            t: TypeId::of::<A>(),
+            t: TypeId::of::<B>(),
         }
     }
 }
 
 pub(crate) struct Edge {
-    kind: EdgeKind,
+    kind: DependencyKind,
     target: Node,
 }
 
 impl Edge {
-    fn new(target: Node, kind: EdgeKind) -> Self {
+    fn new(target: Node, kind: DependencyKind) -> Self {
         Self { kind, target }
     }
-}
-
-pub(crate) enum EdgeKind {
-    Optional,
-    Required,
 }
 
 pub(crate) struct Graph {

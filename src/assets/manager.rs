@@ -141,10 +141,7 @@ impl Manager {
     pub fn status<B: BuiltAs>(&self, handle: Handle<B>) -> Result<AssetStatus, AssetError> {
         self.registry
             .get(&TypeId::of::<B>())
-            .ok_or(AssetError::NotFound {
-                id: handle.id,
-                t: type_name::<B>(),
-            })?
+            .ok_or(handle.not_found())?
             .status(handle.id, handle.generation)
     }
 }

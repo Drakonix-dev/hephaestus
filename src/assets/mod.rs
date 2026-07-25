@@ -7,7 +7,7 @@ pub(crate) mod registry;
 pub mod events;
 pub mod graph;
 
-use std::{error::Error, io, marker::PhantomData};
+use std::{any::type_name, error::Error, io, marker::PhantomData};
 
 pub use {
     loader::{Deps, Fetch, Loader},
@@ -57,6 +57,20 @@ impl<T> Handle<T> {
             _marker: PhantomData,
         }
     }
+
+    pub fn not_found(self) -> AssetError {
+        AssetError::NotFound {
+            id: self.id,
+            t: type_name::<T>(),
+        }
+    }
+
+    pub fn not_ready(self) -> AssetError {
+        AssetError::NotReady {
+            id: self.id,
+            t: type_name::<T>(),
+        }
+    }
 }
 
 impl<T> Clone for Handle<T> {
@@ -91,6 +105,18 @@ impl<T> Dependency<T> {
             _marker: PhantomData,
         }
     }
+
+    pub fn not_found(self) -> AssetError {
+        AssetError::NotFound {
+            id: self.idx,
+            t: type_name::<T>(),
+        }
+    }
+}
+
+pub enum DependencyKind {
+    Optional,
+    Required,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -104,6 +130,9 @@ pub enum AssetError {
 
     #[error("asset not found: {t}x{id}")]
     NotFound { id: usize, t: &'static str },
+
+    #[error("asset not ready: {t}x{id}")]
+    NotReady { id: usize, t: &'static str },
 
     #[error("operation failed")]
     OperationFailed {
