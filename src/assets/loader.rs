@@ -1,5 +1,6 @@
 use std::{
-    any::{Any, type_name},
+    any::{Any, TypeId, type_name},
+    collections::HashMap,
     marker::PhantomData,
     sync::Arc,
 };
@@ -132,26 +133,44 @@ impl Deps {
 }
 
 pub struct Fetch {
-    built: Vec<Arc<dyn Any>>,
+    built: Vec<(Box<dyn Any>, Arc<dyn Any>)>,
+    handles: HashMap<(TypeId, usize, u64), Arc<dyn Any>>,
 }
 
 impl Fetch {
     fn new() -> Self {
-        Self { built: Vec::new() }
+        Self {
+            built: Vec::new(),
+            handles: HashMap::new(),
+        }
     }
 
-    pub fn get<B: BuiltAs>(&self, dependency: Dependency<B>) -> Result<&B::Built, AssetError> {
+    pub fn get<B: BuiltAs>(
+        &self,
+        dependency: Dependency<B>,
+    ) -> Result<(Handle<B>, &B::Built), AssetError> {
+        let (handle, built) = self.built.get(dependency.idx).ok_or(AssetError::NotFound {
+            id: dependency.idx,
+            t: type_name::<B>(),
+        })?;
+
+        Ok((
+            *handle.downcast_ref::<Handle<B>>().expect(INVARIANT),
+            built.downcast_ref::<B::Built>().expect(INVARIANT),
+        ))
+    }
+
+    pub fn get_handle<B: BuiltAs>(&self, handle: Handle<B>) -> Result<&B::Built, AssetError> {
         let built = self
-            .built
-            .get(dependency.idx)
+            .handles
+            .get(&(TypeId::of::<B>(), handle.id, handle.generation))
             .ok_or(AssetError::NotFound {
-                id: dependency.idx,
+                id: handle.id,
                 t: type_name::<B>(),
             })?
             .downcast_ref::<B::Built>()
             .expect(INVARIANT);
+
         Ok(built)
     }
-
-    pub fn get_handle<B: BuiltAs>(&self, handle: Handle<B>) -> Result<&B::Built, AssetError> {}
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     assets::{Asset, AssetError, BuiltAs, Deps, Fetch, Handle, Loader, Priority, SourceFor},
-    renderer::Shader,
+    renderer::{Shader, Vertex},
 };
 
 pub(crate) struct Pipeline;
@@ -47,15 +47,74 @@ impl PipelineLoader {
 }
 
 impl Loader<Pipeline, PipelineDefinition> for PipelineLoader {
-    type Parsed = <PipelineDefinition as SourceFor<Pipeline>>::Raw;
+    type Parsed = ();
 
     fn build(
         &self,
-        _: &PipelineDefinition,
+        src: &PipelineDefinition,
         _: Self::Parsed,
-        _: &Fetch,
+        fetch: &Fetch,
     ) -> Result<PipelineInstance, AssetError> {
-        todo!("build the pipeline")
+        let shader = fetch.get_handle(src.shader)?;
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Pipeline Layout"),
+                bind_group_layouts: &[&src.globals_layout, &shader.layout, &src.model_layout],
+                push_constant_ranges: &[],
+            });
+
+        let vertex_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Float32x3, // position
+                1 => Float32x3, // normal
+                2 => Float32x2, // uv
+            ],
+        };
+
+        let depth_stencil = if src.render_state.depth_enabled {
+            Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            })
+        } else {
+            None
+        };
+
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    buffers: &[vertex_buffer_layout],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    entry_point: Some("vs_main"),
+                    module: &shader.module,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader.module,
+                    entry_point: Some("fs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        format: src.format,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+        Ok(PipelineInstance { pipeline })
     }
 
     fn parse(

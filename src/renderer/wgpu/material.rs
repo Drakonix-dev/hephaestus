@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use wgpu::util::DeviceExt;
+
 use crate::{
     assets::{AssetError, BuiltAs, Deps, Fetch, Handle, Loader, Priority, SourceFor},
     renderer::{Material, MaterialDefinition, Shader},
@@ -25,15 +27,81 @@ impl MaterialLoader {
 }
 
 impl Loader<Material, MaterialDefinition> for MaterialLoader {
-    type Parsed = <MaterialDefinition as SourceFor<Material>>::Raw;
+    type Parsed = ();
 
     fn build(
         &self,
         src: &MaterialDefinition,
         _: Self::Parsed,
-        _: &Fetch,
+        fetch: &Fetch,
     ) -> Result<MaterialInstance, AssetError> {
-        todo!("still need to implement this")
+        let shader = fetch.get_handle(src.shader)?;
+        let texture_views: Vec<&wgpu::TextureView> = src
+            .textures
+            .iter()
+            .map(|h| {
+                let tex = fetch.get_handle(*h)?;
+                Ok(&tex.view)
+            })
+            .collect::<Result<_, AssetError>>()?;
+
+        let uniform_data = bytemuck::bytes_of(&src.uniforms);
+        let uniform_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Material Uniform Buffer"),
+                contents: uniform_data,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let mut entries = vec![wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform_buffer.as_entire_binding(),
+        }]
+        .into_iter()
+        .chain(
+            texture_views
+                .iter()
+                .enumerate()
+                .map(|(i, view)| wgpu::BindGroupEntry {
+                    binding: (i + 1) as u32,
+                    resource: wgpu::BindingResource::TextureView(view),
+                }),
+        )
+        .collect::<Vec<_>>();
+
+        let sampler = if texture_views.is_empty() {
+            None
+        } else {
+            Some(self.device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("Material Sampler"),
+                address_mode_u: wgpu::AddressMode::Repeat,
+                address_mode_v: wgpu::AddressMode::Repeat,
+                address_mode_w: wgpu::AddressMode::Repeat,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                ..Default::default()
+            }))
+        };
+
+        if let Some(sampler) = &sampler {
+            entries.push(wgpu::BindGroupEntry {
+                binding: (texture_views.len() + 1) as u32,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            });
+        }
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Material Bind Group"),
+            layout: &shader.layout,
+            entries: &entries,
+        });
+
+        Ok(MaterialInstance {
+            bind_group,
+            shader: src.shader,
+        })
     }
 
     fn parse(
