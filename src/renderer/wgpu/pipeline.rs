@@ -55,9 +55,7 @@ impl Loader<Pipeline, PipelineDefinition> for PipelineLoader {
         _: Self::Parsed,
         fetch: &Fetch,
     ) -> Result<PipelineInstance, AssetError> {
-        let shader = fetch
-            .get_handle(src.shader)?
-            .ok_or(src.shader.not_ready())?;
+        let shader = fetch.get_handle(src.shader)?.required()?;
         let pipeline_layout = self
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

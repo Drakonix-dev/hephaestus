@@ -119,6 +119,24 @@ pub enum DependencyKind {
     Required,
 }
 
+pub struct Resolved<'a, T> {
+    data: Option<&'a T>,
+    id: usize,
+}
+
+impl<'a, T> Resolved<'a, T> {
+    pub(crate) fn new(id: usize, data: Option<&'a T>) -> Self {
+        Self { data, id }
+    }
+
+    pub fn required(self) -> Result<&'a T, AssetError> {
+        self.data.ok_or(AssetError::NotReady {
+            id: self.id,
+            t: type_name::<T>(),
+        })
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AssetError {

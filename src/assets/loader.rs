@@ -1,12 +1,12 @@
 use std::{
-    any::{Any, TypeId, type_name},
+    any::{Any, TypeId},
     collections::HashMap,
     marker::PhantomData,
     sync::Arc,
 };
 
 use crate::assets::{
-    AssetError, BuiltAs, Dependency, DependencyKind, Handle, INVARIANT, SourceFor,
+    AssetError, BuiltAs, Dependency, DependencyKind, Handle, INVARIANT, Resolved, SourceFor,
     registry::{ErasedRegistry, Registry, SlotState},
 };
 
@@ -147,7 +147,7 @@ impl Fetch {
     pub fn get<B: BuiltAs>(
         &self,
         dependency: Dependency<B>,
-    ) -> Result<(Handle<B>, Option<&B::Built>), AssetError> {
+    ) -> Result<(Handle<B>, Resolved<B::Built>), AssetError> {
         let (handle, built) = self
             .built
             .get(dependency.idx)
@@ -158,14 +158,15 @@ impl Fetch {
         } else {
             None
         };
+        let handle = *handle.downcast_ref::<Handle<B>>().expect(INVARIANT);
 
-        Ok((*handle.downcast_ref::<Handle<B>>().expect(INVARIANT), built))
+        Ok((handle, Resolved::new(handle.id, built)))
     }
 
     pub fn get_handle<B: BuiltAs>(
         &self,
         handle: Handle<B>,
-    ) -> Result<Option<&B::Built>, AssetError> {
+    ) -> Result<Resolved<B::Built>, AssetError> {
         let built = self
             .handles
             .get(&(TypeId::of::<B>(), handle.id, handle.generation))
@@ -177,6 +178,6 @@ impl Fetch {
             None
         };
 
-        Ok(built)
+        Ok(Resolved::new(handle.id, built))
     }
 }

@@ -35,15 +35,13 @@ impl Loader<Material, MaterialDefinition> for MaterialLoader {
         _: Self::Parsed,
         fetch: &Fetch,
     ) -> Result<MaterialInstance, AssetError> {
-        let shader = fetch
-            .get_handle(src.shader)?
-            .ok_or(src.shader.not_ready())?;
+        let shader = fetch.get_handle(src.shader)?.required()?;
 
         let texture_views: Vec<&wgpu::TextureView> = src
             .textures
             .iter()
             .map(|h| {
-                let tex = fetch.get_handle(*h)?.ok_or(h.not_ready())?;
+                let tex = fetch.get_handle(*h)?.required()?;
                 Ok(&tex.view)
             })
             .collect::<Result<_, AssetError>>()?;
