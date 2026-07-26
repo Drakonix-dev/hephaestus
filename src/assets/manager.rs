@@ -20,8 +20,9 @@ use crate::{
     events::EventBus,
 };
 
-type ApplyFn =
-    Box<dyn FnOnce(&mut dyn ErasedRegistry, &mut EventBus) -> Result<(), AssetError> + Send>;
+type ApplyFn = Box<
+    dyn FnOnce(&mut Graph, &mut dyn ErasedRegistry, &mut EventBus) -> Result<(), AssetError> + Send,
+>;
 
 struct QueuedAsset {
     apply: ApplyFn,
@@ -120,7 +121,7 @@ impl Manager {
                 .get_mut(&job.type_id)
                 .ok_or(AssetError::UnknownAsset { t: job.type_name })?;
 
-            (job.apply)(reg.as_mut(), events)?;
+            (job.apply)(&mut self.dependencies, reg.as_mut(), events)?;
         }
 
         Ok(())
@@ -133,10 +134,15 @@ impl Manager {
         handle: Handle<B>,
     ) -> Box<dyn FnOnce(Result<(Deps, BuildFn), AssetError>) -> ApplyFn + Send> {
         Box::new(move |result| {
-            Box::new(move |reg, events| {
-                let fetch = Fetch::new();
+            Box::new(move |graph, reg, events| {
+                let mut fetch = Fetch::new();
+                let result = result.and_then(|(deps, build)| {
+                    deps.add_to_graph(graph);
+                    fetch.get_dependencies(&deps, reg);
+                    build(&handle, reg, &fetch)
+                });
 
-                match result.and_then(|(deps, build)| build(&handle, reg, &fetch)) {
+                match result {
                     Ok(()) => events.publish(AssetLoaded { handle }),
                     Err(e) => {
                         let reason = e.to_string();

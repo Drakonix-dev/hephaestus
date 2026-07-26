@@ -6,7 +6,8 @@ use std::{
 };
 
 use crate::assets::{
-    AssetError, BuiltAs, Dependency, DependencyKind, Handle, INVARIANT, Resolved, SourceFor,
+    AssetError, AssetStatus, BuiltAs, Dependency, DependencyKind, Handle, INVARIANT, Resolved,
+    SourceFor, registry::ErasedRegistry,
 };
 
 #[derive(PartialEq, Eq, Hash)]
@@ -28,12 +29,17 @@ impl<B: BuiltAs> From<Handle<B>> for Node {
 
 pub(crate) struct Edge {
     kind: DependencyKind,
+    status: AssetStatus,
     target: Node,
 }
 
 impl Edge {
     fn new(target: Node, kind: DependencyKind) -> Self {
-        Self { kind, target }
+        Self {
+            kind,
+            status: AssetStatus::Pending,
+            target,
+        }
     }
 }
 
@@ -103,6 +109,10 @@ impl Deps {
         }
     }
 
+    pub(crate) fn add_to_graph(&self, graph: &mut Graph) {
+        todo!("add to graph")
+    }
+
     pub fn require<B: BuiltAs, S: SourceFor<B>>(
         &mut self,
         src: S,
@@ -128,6 +138,10 @@ impl Fetch {
             built: Vec::new(),
             handles: HashMap::new(),
         }
+    }
+
+    pub(crate) fn get_dependencies(&mut self, deps: &Deps, reg: &mut dyn ErasedRegistry) {
+        todo!("get dependencies")
     }
 
     pub fn get<B: BuiltAs>(
