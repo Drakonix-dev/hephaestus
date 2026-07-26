@@ -1,23 +1,20 @@
-use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    marker::PhantomData,
-    sync::Arc,
-};
+use std::{any::Any, marker::PhantomData, sync::Arc};
 
 use crate::assets::{
-    AssetError, BuiltAs, Dependency, DependencyKind, Handle, INVARIANT, Resolved, SourceFor,
+    AssetError, BuiltAs, Handle, INVARIANT, SourceFor,
+    graph::{Deps, Fetch},
     registry::{ErasedRegistry, Registry, SlotState},
 };
 
 pub(crate) type BuildFn =
-    Box<dyn FnOnce(&dyn Any, &mut dyn ErasedRegistry) -> Result<(), AssetError> + Send>;
+    Box<dyn FnOnce(&dyn Any, &mut dyn ErasedRegistry, &Fetch) -> Result<(), AssetError> + Send>;
 
 pub(crate) trait ErasedLoader: Send + Sync {
-    fn parse<'a>(
+    fn parse(
         self: Arc<Self>,
         src: Arc<dyn Any + Send + Sync>,
         raw: Box<dyn Any>,
+        deps: &mut Deps,
     ) -> Result<BuildFn, AssetError>;
 }
 
@@ -39,17 +36,16 @@ where
         self: Arc<Self>,
         src: Arc<dyn Any + Send + Sync>,
         raw: Box<dyn Any>,
+        deps: &mut Deps,
     ) -> Result<BuildFn, AssetError> {
         let src = src.downcast::<S>().expect(INVARIANT);
-        let parsed = self.0.parse(
-            &src,
-            *raw.downcast::<S::Raw>().expect(INVARIANT),
-            &mut Deps::new(),
-        )?;
+        let parsed = self
+            .0
+            .parse(&src, *raw.downcast::<S::Raw>().expect(INVARIANT), deps)?;
 
-        Ok(Box::new(move |handle, reg| {
+        Ok(Box::new(move |handle, reg, fetch| {
             let h = handle.downcast_ref::<Handle<B>>().expect(INVARIANT);
-            let built = self.0.build(&src, parsed, &Fetch::new())?;
+            let built = self.0.build(&src, parsed, fetch)?;
 
             reg.as_any_mut()
                 .downcast_mut::<Registry<B, B::Built>>()
@@ -68,116 +64,4 @@ where
 
     fn build(&self, src: &S, parsed: Self::Parsed, fetch: &Fetch) -> Result<B::Built, AssetError>;
     fn parse(&self, src: &S, raw: S::Raw, deps: &mut Deps) -> Result<Self::Parsed, AssetError>;
-}
-
-trait ErasedDependency: Any {}
-trait ErasedHandle: Any {}
-
-struct DependencyCell<B: BuiltAs, S: SourceFor<B>> {
-    kind: DependencyKind,
-    src: S,
-    _marker: PhantomData<fn() -> B>,
-}
-
-impl<B: BuiltAs, S: SourceFor<B>> DependencyCell<B, S> {
-    fn new(src: S, kind: DependencyKind) -> Self {
-        Self {
-            kind,
-            src,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<B: BuiltAs, S: SourceFor<B>> ErasedDependency for DependencyCell<B, S> {}
-
-struct HandleCell<B: BuiltAs> {
-    handle: Handle<B>,
-    kind: DependencyKind,
-}
-
-impl<B: BuiltAs> HandleCell<B> {
-    fn new(handle: Handle<B>, kind: DependencyKind) -> Self {
-        Self { handle, kind }
-    }
-}
-
-impl<B: BuiltAs> ErasedHandle for HandleCell<B> {}
-
-pub struct Deps {
-    deps: Vec<Box<dyn ErasedDependency>>,
-    handles: Vec<Box<dyn ErasedHandle>>,
-}
-
-impl Deps {
-    fn new() -> Self {
-        Self {
-            deps: Vec::new(),
-            handles: Vec::new(),
-        }
-    }
-
-    pub fn require<B: BuiltAs, S: SourceFor<B>>(
-        &mut self,
-        src: S,
-        kind: DependencyKind,
-    ) -> Dependency<B> {
-        self.deps.push(Box::new(DependencyCell::new(src, kind)));
-        Dependency::new(self.deps.len())
-    }
-
-    pub fn require_handle<B: BuiltAs>(&mut self, handle: Handle<B>, kind: DependencyKind) {
-        self.handles.push(Box::new(HandleCell::new(handle, kind)));
-    }
-}
-
-pub struct Fetch {
-    built: Vec<(Box<dyn Any>, Option<Arc<dyn Any>>)>,
-    handles: HashMap<(TypeId, usize, u64), Option<Arc<dyn Any>>>,
-}
-
-impl Fetch {
-    fn new() -> Self {
-        Self {
-            built: Vec::new(),
-            handles: HashMap::new(),
-        }
-    }
-
-    pub fn get<B: BuiltAs>(
-        &self,
-        dependency: Dependency<B>,
-    ) -> Result<(Handle<B>, Resolved<B::Built>), AssetError> {
-        let (handle, built) = self
-            .built
-            .get(dependency.idx)
-            .ok_or(dependency.not_found())?;
-
-        let built = if let Some(b) = built {
-            Some(b.downcast_ref::<B::Built>().expect(INVARIANT))
-        } else {
-            None
-        };
-        let handle = *handle.downcast_ref::<Handle<B>>().expect(INVARIANT);
-
-        Ok((handle, Resolved::new(handle.id, built)))
-    }
-
-    pub fn get_handle<B: BuiltAs>(
-        &self,
-        handle: Handle<B>,
-    ) -> Result<Resolved<B::Built>, AssetError> {
-        let built = self
-            .handles
-            .get(&(TypeId::of::<B>(), handle.id, handle.generation))
-            .ok_or(handle.not_found())?;
-
-        let built = if let Some(b) = built {
-            Some(b.downcast_ref::<B::Built>().expect(INVARIANT))
-        } else {
-            None
-        };
-
-        Ok(Resolved::new(handle.id, built))
-    }
 }

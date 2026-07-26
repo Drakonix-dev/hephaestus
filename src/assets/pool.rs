@@ -8,12 +8,13 @@ use crossbeam_channel::{Receiver, Sender, select_biased};
 use crate::{
     assets::{
         Asset, AssetError, Priority, SourceFor, TOTAL_PRIORITIES,
+        graph::Deps,
         loader::{BuildFn, ErasedLoader},
     },
     config::EngineConfig,
 };
 
-pub(crate) type SubmitFn = Box<dyn FnOnce(Result<BuildFn, AssetError>) + Send>;
+pub(crate) type SubmitFn = Box<dyn FnOnce(Result<(Deps, BuildFn), AssetError>) + Send>;
 
 pub(crate) struct Pool {
     handles: Vec<JoinHandle<()>>,
@@ -72,7 +73,11 @@ impl Pool {
         let job = Box::new(move || match src.fetch() {
             Ok(raw) => {
                 let _ = ptx.send(Box::new(move || {
-                    submit(loader.parse(src, Box::new(raw)));
+                    let mut deps = Deps::new();
+                    let res = loader
+                        .parse(src, Box::new(raw), &mut deps)
+                        .map(|build| (deps, build));
+                    submit(res)
                 }));
             }
             Err(e) => submit(Err(e)),

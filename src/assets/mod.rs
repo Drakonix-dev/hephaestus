@@ -9,10 +9,7 @@ pub mod graph;
 
 use std::{any::type_name, error::Error, io, marker::PhantomData};
 
-pub use {
-    loader::{Deps, Fetch, Loader},
-    manager::Manager,
-};
+pub use {loader::Loader, manager::Manager};
 
 pub(crate) const INVARIANT: &str = "asset type-erasure invariant violated";
 

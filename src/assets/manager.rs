@@ -11,9 +11,9 @@ use crate::{
     assets::{
         AssetError, AssetStatus, BuiltAs, Handle, Priority, SourceFor,
         events::{AssetFailed, AssetLoaded},
-        graph::Graph,
+        graph::{Deps, Fetch, Graph},
         loader::{BuildFn, ErasedLoader, Loader, LoaderCell},
-        pool::Pool,
+        pool::{Pool, SubmitFn},
         registry::{ErasedRegistry, Registry},
     },
     config::EngineConfig,
@@ -52,10 +52,6 @@ impl Manager {
         }
     }
 
-    pub(crate) fn close(self) {
-        self.pool.close()
-    }
-
     pub fn load<B: BuiltAs, S: SourceFor<B>>(
         &mut self,
         src: S,
@@ -79,49 +75,12 @@ impl Manager {
 
         let (id, generation) = registry.insert_pending();
         let handle = Handle::new(id, generation);
-
-        let tx = self.qtx.clone();
-        let submit = Box::new(move |result: Result<BuildFn, AssetError>| {
-            let apply: ApplyFn = Box::new(move |reg, events| {
-                match result.and_then(|build| build(&handle, reg)) {
-                    Ok(()) => events.publish(AssetLoaded { handle }),
-                    Err(e) => {
-                        let reason = e.to_string();
-                        reg.failed(handle.id, handle.generation, Box::new(e))?;
-                        events.publish(AssetFailed { handle, reason });
-                    }
-                }
-
-                Ok(())
-            });
-
-            let _ = tx.send(QueuedAsset {
-                apply,
-                type_id: TypeId::of::<B>(),
-                type_name: type_name::<B>(),
-            });
-        });
+        let submit = self.prepare_submit_fn(handle);
 
         let src = Arc::new(src);
         self.pool.load(src.clone(), priority, loader, submit);
 
         Ok(handle)
-    }
-
-    pub(crate) fn process_queued_assets(
-        &mut self,
-        events: &mut EventBus,
-    ) -> Result<(), AssetError> {
-        while let Ok(job) = self.qrx.try_recv() {
-            let reg = self
-                .registry
-                .get_mut(&job.type_id)
-                .ok_or(AssetError::UnknownAsset { t: job.type_name })?;
-
-            (job.apply)(reg.as_mut(), events)?;
-        }
-
-        Ok(())
     }
 
     pub fn register<B, S, L>(&mut self, l: L)
@@ -143,5 +102,64 @@ impl Manager {
             .get(&TypeId::of::<B>())
             .ok_or(handle.not_found())?
             .status(handle.id, handle.generation)
+    }
+
+    // ------------------------------------------------------------------------
+
+    pub(crate) fn close(self) {
+        self.pool.close()
+    }
+
+    pub(crate) fn process_queued_assets(
+        &mut self,
+        events: &mut EventBus,
+    ) -> Result<(), AssetError> {
+        while let Ok(job) = self.qrx.try_recv() {
+            let reg = self
+                .registry
+                .get_mut(&job.type_id)
+                .ok_or(AssetError::UnknownAsset { t: job.type_name })?;
+
+            (job.apply)(reg.as_mut(), events)?;
+        }
+
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------------
+
+    fn prepare_apply_fn<B: BuiltAs>(
+        &self,
+        handle: Handle<B>,
+    ) -> Box<dyn FnOnce(Result<(Deps, BuildFn), AssetError>) -> ApplyFn + Send> {
+        Box::new(move |result| {
+            Box::new(move |reg, events| {
+                let fetch = Fetch::new();
+
+                match result.and_then(|(deps, build)| build(&handle, reg, &fetch)) {
+                    Ok(()) => events.publish(AssetLoaded { handle }),
+                    Err(e) => {
+                        let reason = e.to_string();
+                        reg.failed(handle.id, handle.generation, Box::new(e))?;
+                        events.publish(AssetFailed { handle, reason });
+                    }
+                }
+
+                Ok(())
+            })
+        })
+    }
+
+    fn prepare_submit_fn<B: BuiltAs>(&self, handle: Handle<B>) -> SubmitFn {
+        let tx = self.qtx.clone();
+        let get_apply = self.prepare_apply_fn(handle);
+
+        Box::new(move |result: Result<(Deps, BuildFn), AssetError>| {
+            let _ = tx.send(QueuedAsset {
+                apply: get_apply(result),
+                type_id: TypeId::of::<B>(),
+                type_name: type_name::<B>(),
+            });
+        })
     }
 }
