@@ -102,7 +102,7 @@ impl Manager {
         self.registry
             .get(&TypeId::of::<B>())
             .ok_or(handle.not_found())?
-            .status(handle.id, handle.generation)
+            .status(handle.handle())
     }
 
     // ------------------------------------------------------------------------
@@ -115,6 +115,8 @@ impl Manager {
         &mut self,
         events: &mut EventBus,
     ) -> Result<(), AssetError> {
+        self.registry.values_mut().for_each(|reg| reg.release());
+
         while let Ok(job) = self.qrx.try_recv() {
             let reg = self
                 .registry
@@ -146,7 +148,7 @@ impl Manager {
                     Ok(()) => events.publish(AssetLoaded { handle }),
                     Err(e) => {
                         let reason = e.to_string();
-                        reg.failed(handle.id, handle.generation, Box::new(e))?;
+                        reg.failed(handle.handle(), Box::new(e))?;
                         events.publish(AssetFailed { handle, reason });
                     }
                 }

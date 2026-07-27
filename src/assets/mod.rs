@@ -7,7 +7,7 @@ pub(crate) mod registry;
 pub mod events;
 pub mod graph;
 
-use std::{any::type_name, error::Error, io, marker::PhantomData};
+use std::{any::type_name, error::Error, io, marker::PhantomData, sync::mpsc::Sender};
 
 pub use {loader::Loader, manager::Manager};
 
@@ -40,19 +40,23 @@ pub enum AssetStatus {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub struct Handle<T> {
+pub struct Handle<T: Asset> {
     pub(crate) generation: u64,
     pub(crate) id: usize,
     _marker: PhantomData<fn() -> T>,
 }
 
-impl<T> Handle<T> {
+impl<T: Asset> Handle<T> {
     pub(crate) fn new(id: usize, generation: u64) -> Self {
         Self {
             generation,
             id,
             _marker: PhantomData,
         }
+    }
+
+    pub(crate) fn handle(&self) -> (usize, u64) {
+        (self.id, self.generation)
     }
 
     pub fn not_found(self) -> AssetError {
@@ -70,7 +74,7 @@ impl<T> Handle<T> {
     }
 }
 
-impl<T> Clone for Handle<T> {
+impl<T: Asset> Clone for Handle<T> {
     fn clone(&self) -> Self {
         Self {
             generation: self.generation.clone(),
@@ -80,7 +84,28 @@ impl<T> Clone for Handle<T> {
     }
 }
 
-impl<T> Copy for Handle<T> {}
+impl<T: Asset> Copy for Handle<T> {}
+
+pub struct OwnedAsset<T: Asset> {
+    handle: Handle<T>,
+    tx: Sender<usize>,
+}
+
+impl<T: Asset> OwnedAsset<T> {
+    pub(crate) fn new(tx: Sender<usize>, handle: Handle<T>) -> Self {
+        Self { handle, tx }
+    }
+
+    pub fn handle(&self) -> Handle<T> {
+        self.handle
+    }
+}
+
+impl<T: Asset> Drop for OwnedAsset<T> {
+    fn drop(&mut self) {
+        let _ = self.tx.send(self.handle.id);
+    }
+}
 
 pub enum Priority {
     Critical,
