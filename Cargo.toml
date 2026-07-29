@@ -5,6 +5,9 @@ members = [".", "math-derive"]
 name = "hephaestus"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+keywords = ["gamedev", "engine"]
+categories = ["game-engines"]
 
 [dependencies]
 bytemuck = { version = "1.23.1", features = ["derive"] }
