@@ -1,6 +1,6 @@
 # 3. Assets need to be processed asynchronously
 
-Date: 2026-08-01
+Date: 2026-08-24
 
 ## Status
 
@@ -9,45 +9,73 @@ Accepted
 ## Context
 
 Various aspects of the engine require assets, including rendering (meshes,
-shaders, materials, etc.) and audio. Some of these assets must be built on the
-main thread, like the gpu owned objects. The game is not guaranteed to request
-or manage all assets on the main thread, or in other words, assets need to be
-capable of loading asynchronously.
+shaders, materials) and audio. Some of these must be built against renderer state
+that is main-thread-bound. The game is not guaranteed to request or manage assets
+from the main thread, so assets need to be capable of loading asynchronously.
 
-To comply with ADR 0001, assets must be able to be referenced and loaded
-deterministically. This decision is live now because the asset
-system has not landed yet, and changing this later affects every downstream
-consumer of assets.
+This decision is live now because the asset system has not landed yet, and every
+downstream consumer of assets is written against whatever shape it takes.
 
-However, processing assets asynchronously brings in the added complexity of
-threading and data synchronization.
+Pulling the other way: moving asset work off the main thread introduces
+synchronization, and synchronization bugs are timing-dependent. They do not
+reproduce on demand, they do not fail the same way twice, and they surface under
+load rather than under test. A synchronous loader has none of that exposure, at
+the cost of stalling the main thread for the duration of every read.
 
 ## Decision
 
-Assets will be loaded in 3 distinct stages:
+Assets are loaded in three distinct stages:
 
-1. Request to load asset
-2. Parsing and preparing asset for build
-3. Building asset
+1. **Request** — a load is asked for, and returns immediately.
+2. **Parse and prepare** — bytes are read and turned into an intermediate form.
+3. **Build** — the intermediate form becomes the usable asset.
 
-Requests are safe to emit from anywhere and return stable deterministic handles
-to the requested assets. Step 2 occurs asynchronously via thread pool.
-Requesting to load an asset will return a handle, or reference, to the
-requested asset that can be used to check status and/or retrieve the loaded
-asset. The handle will be returned while the asset is still being loaded,
-meaning the handle can reference a pending, or unbuilt, asset. Building of the
-actual asset must occur on the main thread.
+Requests are safe to emit from anywhere. Stage 2 occurs across two pools of
+background threads:
 
-Parsing and preparing assets will occur via 2 pools of background threads:
-
-1. IO blocking threads
+1. IO-blocking threads
 2. Asset worker threads
 
-Assets will be read from disk on the first thread pool, parking those threads
-until the IO operations are complete. At which point they'll then be picked up
-by the second thread pool to finish any remaining parsing or preparing. Final
-build of the asset will occur on the main thread, where the built assets
-themselves will reside (avoiding any send/sync issues of asset data).
+Assets are read from disk on the first pool, parking those threads until the IO
+completes. Results are picked up by the second pool, which finishes parsing and
+preparing. Stage 3 occurs on the main thread, before the frame is rendered.
+
+Build is kept on the main thread because some built forms are GPU-owned and are
+created against renderer state that cannot leave it. Splitting stage 3 by whether
+a given asset touches the GPU would mean two build paths and two sets of ordering
+rules for one stage; a single path is worth the constraint.
+
+**Priority orders background work and nothing else.** It selects which parse queue
+a job enters, so a higher-priority asset reaches stage 3 sooner in wall-clock
+terms. It carries no meaning for the simulation: whether an asset blocks the
+simulation is a property of how it was requested, not of its priority.
+The enum is `#[non_exhaustive]` and ships with two levels, so a level can be added
+when a consumer actually needs the distinction rather than in anticipation of one.
+
+Third-party decoders are subsystem providers under ADR 0002 and stay confined to
+the asset layer's backend module. This ADR decides how asset work is scheduled and
+nothing else — what a handle means, and what the pipeline owes the simulation, are
+separate decisions.
 
 ## Consequences
 
+**Enabled.** The main thread never stalls on a read. Streaming and background
+loading are available rather than being a later redesign, and hot reload becomes
+re-entry into stage 2 rather than a separate mechanism. Intermediate forms are
+`Send` and cross freely between pools; built forms never leave the main thread and
+need be neither `Send` nor `Sync`.
+
+**Accepted costs.**
+
+- An asset is usable no earlier than the frame after its background work
+  completes. Nothing in this pipeline makes a load fast; it makes it not block.
+- Stage 3 competes with frame time on the main thread, and there is no per-frame
+  build budget. A large batch completing together is a frame spike.
+- Identical requests are not deduplicated. Two requests for the same source
+  produce two jobs, two slots, and two handles.
+- Threading bugs in stages 1 and 2 are timing-dependent and will not reproduce
+  reliably. This is the standing cost of the decision, not a defect to be fixed.
+
+**Follow-on work.** A per-frame build budget, once stage 3 is doing enough work to
+be measurable. Request deduplication, if profiling shows duplicate loads are
+common in practice rather than in theory.
