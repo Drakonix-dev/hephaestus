@@ -52,6 +52,14 @@ simulation is a property of how it was requested, not of its priority.
 The enum is `#[non_exhaustive]` and ships with two levels, so a level can be added
 when a consumer actually needs the distinction rather than in anticipation of one.
 
+**Hot reload sits outside the determinism invariant.** Re-entering stage 2 for an
+already-loaded asset replaces its content mid-run, at a moment decided by a file
+changing on disk. That is not reproducible and is not meant to be. Reload is a
+development-loop facility and is unavailable wherever a run has to be reproducible —
+while recording, while replaying, and in any networked session. ADR 0001 is not
+weakened by it, because reload cannot occur under the conditions the invariant
+covers.
+
 Third-party decoders are subsystem providers under ADR 0002 and stay confined to
 the asset layer's backend module. This ADR decides how asset work is scheduled and
 nothing else — what a handle means, and what the pipeline owes the simulation, are
@@ -75,6 +83,10 @@ need be neither `Send` nor `Sync`.
   produce two jobs, two slots, and two handles.
 - Threading bugs in stages 1 and 2 are timing-dependent and will not reproduce
   reliably. This is the standing cost of the decision, not a defect to be fixed.
+- The development loop and the reproducible modes are not the same environment. A
+  bug that only appears after a reload has to be reproduced from a fresh load before
+  it can be recorded, and iteration on a networked or replaying session goes back to
+  a restart.
 
 **Follow-on work.** A per-frame build budget, once stage 3 is doing enough work to
 be measurable. Request deduplication, if profiling shows duplicate loads are

@@ -93,10 +93,11 @@ replayable from its own input stream whatever the game chooses to do.
 makes this structural rather than disciplinary: the polling mistake is not
 discouraged, it is unavailable, because there is no surface through which to ask.
 That is also why a single handle type suffices — there is nothing pollable for a
-second type to protect. A recorded session replays without touching the disk,
-which makes replay independent of the storage it was recorded on, and makes the
-determinism harness in ADR 0001 cheaper to run since it need not reproduce IO
-timing.
+second type to protect. A recorded session replays independently of IO timing:
+deliveries come from the recorded input stream rather than from the disk, so replay
+never has to reproduce the load timings of the machine that recorded it. Content
+still comes from the asset store, so replay is not independent of that store, but
+the determinism harness in ADR 0001 is cheaper to run for it.
 
 **Accepted costs.**
 
