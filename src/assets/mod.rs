@@ -1,42 +1,43 @@
-mod manager;
+use std::{any::type_name, error::Error, marker::PhantomData};
 
-pub(crate) mod loader;
-pub(crate) mod pool;
-pub(crate) mod registry;
-
-pub mod events;
-pub mod graph;
-
-use std::{any::type_name, error::Error, io, marker::PhantomData, sync::mpsc::Sender};
-
-pub use {loader::Loader, manager::Manager};
-
-pub(crate) const INVARIANT: &str = "asset type-erasure invariant violated";
-
-pub trait Asset: 'static {}
-
-pub trait SourceFor<A: Asset>: Send + Sync + 'static {
-    type Raw: Send;
-
-    fn fetch(&self) -> Result<Self::Raw, AssetError>;
+pub(crate) mod private {
+    pub trait BuiltAsset: 'static {
+        type Built: 'static;
+    }
 }
 
-pub(crate) trait BuiltAs: Asset {
+pub trait Asset: private::BuiltAsset {}
+
+pub trait GameAsset: 'static {
     type Built: 'static;
 }
 
-pub trait GameAsset: Asset {
-    type Built: 'static;
-}
-
-impl<T: GameAsset> BuiltAs for T {
+impl<T: GameAsset> private::BuiltAsset for T {
     type Built = <T as GameAsset>::Built;
 }
+
+impl<T: GameAsset> Asset for T {}
 
 pub enum AssetStatus {
     Failed(String),
     Pending,
     Ready,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum AssetError {
+    #[error("asset not found: {t}x{id}")]
+    NotFound { id: usize, t: &'static str },
+}
+
+impl AssetError {
+    fn not_found<A: Asset>(handle: &Handle<A>) -> Self {
+        Self::NotFound {
+            id: handle.id,
+            t: type_name::<A>(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -54,24 +55,6 @@ impl<T: Asset> Handle<T> {
             _marker: PhantomData,
         }
     }
-
-    pub(crate) fn handle(&self) -> (usize, u64) {
-        (self.id, self.generation)
-    }
-
-    pub fn not_found(self) -> AssetError {
-        AssetError::NotFound {
-            id: self.id,
-            t: type_name::<T>(),
-        }
-    }
-
-    pub fn not_ready(self) -> AssetError {
-        AssetError::NotReady {
-            id: self.id,
-            t: type_name::<T>(),
-        }
-    }
 }
 
 impl<T: Asset> Clone for Handle<T> {
@@ -84,105 +67,89 @@ impl<T: Asset> Clone for Handle<T> {
     }
 }
 
-impl<T: Asset> Copy for Handle<T> {}
+pub struct SourceId(pub &'static str);
 
-pub struct OwnedAsset<T: Asset> {
-    handle: Handle<T>,
-    tx: Sender<usize>,
+pub trait Source: 'static {
+    type Output;
+
+    fn id(&self) -> SourceId;
+    fn read(&self) -> Result<Self::Output, AssetError>;
 }
 
-impl<T: Asset> OwnedAsset<T> {
-    pub(crate) fn new(tx: Sender<usize>, handle: Handle<T>) -> Self {
-        Self { handle, tx }
-    }
+pub trait Loader<A: Asset>: 'static {
+    type Parsed: 'static;
+    type Raw;
 
-    pub fn handle(&self) -> Handle<T> {
-        self.handle
-    }
+    fn build(&self, parsed: Self::Parsed) -> Result<A::Built, AssetError>;
+    fn parse(&self, raw: Self::Raw) -> Result<Self::Parsed, AssetError>;
 }
 
-impl<T: Asset> Drop for OwnedAsset<T> {
-    fn drop(&mut self) {
-        let _ = self.tx.send(self.handle.id);
-    }
+struct Slot<T> {
+    generation: u64,
+    state: SlotState<T>,
 }
 
-pub enum Priority {
-    Critical,
-    Streaming,
-    Idle,
-}
-
-const TOTAL_PRIORITIES: usize = Priority::Idle as usize + 1;
-
-pub struct Dependency<T> {
-    pub(crate) idx: usize,
-    _marker: PhantomData<fn() -> T>,
-}
-
-impl<T> Dependency<T> {
-    pub(crate) fn new(idx: usize) -> Self {
+impl<T> Slot<T> {
+    fn new(state: SlotState<T>) -> Self {
         Self {
-            idx,
-            _marker: PhantomData,
-        }
-    }
-
-    pub fn not_found(self) -> AssetError {
-        AssetError::NotFound {
-            id: self.idx,
-            t: type_name::<T>(),
+            generation: 0,
+            state,
         }
     }
 }
 
-pub enum DependencyKind {
-    Optional,
-    Required,
+enum SlotState<T> {
+    Failed(Box<dyn Error + Send + Sync>),
+    Pending,
+    Ready(T),
 }
 
-pub struct Resolved<'a, T> {
-    data: Option<&'a T>,
-    id: usize,
-}
-
-impl<'a, T> Resolved<'a, T> {
-    pub(crate) fn new(id: usize, data: Option<&'a T>) -> Self {
-        Self { data, id }
-    }
-
-    pub fn required(self) -> Result<&'a T, AssetError> {
-        self.data.ok_or(AssetError::NotReady {
-            id: self.id,
-            t: type_name::<T>(),
-        })
+impl<T> From<&SlotState<T>> for AssetStatus {
+    fn from(state: &SlotState<T>) -> Self {
+        match state {
+            SlotState::Failed(err) => AssetStatus::Failed(err.to_string()),
+            SlotState::Pending => AssetStatus::Pending,
+            SlotState::Ready(_) => AssetStatus::Ready,
+        }
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum AssetError {
-    #[error("bad asset: {reason}")]
-    BadAsset { reason: &'static str },
-
-    #[error(transparent)]
-    IO(#[from] io::Error),
-
-    #[error("asset not found: {t}x{id}")]
-    NotFound { id: usize, t: &'static str },
-
-    #[error("asset not ready: {t}x{id}")]
-    NotReady { id: usize, t: &'static str },
-
-    #[error("operation failed")]
-    OperationFailed {
-        #[source]
-        source: Box<dyn Error + Send + Sync>,
-    },
-
-    #[error("asset cannot be handled: {t}")]
-    UnhandledAsset { t: &'static str },
-
-    #[error("asset type unknown: {t}")]
-    UnknownAsset { t: &'static str },
+struct Registry<A: Asset> {
+    free: Vec<usize>,
+    items: Vec<Slot<A::Built>>,
 }
+
+impl<A: Asset> Registry<A> {
+    fn new() -> Self {
+        Self {
+            free: Vec::new(),
+            items: Vec::new(),
+        }
+    }
+
+    fn get(&self, handle: &Handle<A>) -> Result<&SlotState<A::Built>, AssetError> {
+        if handle.id >= self.items.len() {
+            return Err(AssetError::not_found(handle));
+        }
+
+        let slot = &self.items[handle.id];
+        if slot.generation != handle.generation {
+            return Err(AssetError::not_found(handle));
+        }
+
+        Ok(&slot.state)
+    }
+}
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//
+//     struct MyAsset;
+//     impl GameAsset for MyAsset {
+//         type Built = MyAsset;
+//     }
+//
+//     #[test]
+//     fn loads_asset() {}
+// }

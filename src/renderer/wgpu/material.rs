@@ -3,7 +3,7 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    assets::{AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle, Loader, SourceFor},
+    oldassets::{AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle, Loader, SourceFor},
     renderer::{Material, MaterialDefinition, Shader},
 };
 

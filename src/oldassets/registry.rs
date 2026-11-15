@@ -5,7 +5,7 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
 };
 
-use crate::assets::{Asset, AssetError, AssetStatus, Handle, INVARIANT, OwnedAsset};
+use crate::oldassets::{Asset, AssetError, AssetStatus, Handle, INVARIANT, OwnedAsset};
 
 pub(crate) struct Slot<T> {
     generation: u64,

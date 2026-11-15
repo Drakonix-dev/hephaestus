@@ -6,7 +6,7 @@ use std::{
 use crossbeam_channel::{Receiver, Sender, select_biased};
 
 use crate::{
-    assets::{
+    oldassets::{
         Asset, AssetError, Priority, SourceFor, TOTAL_PRIORITIES,
         graph::Deps,
         loader::{BuildFn, ErasedLoader},

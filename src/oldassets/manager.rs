@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    assets::{
+    oldassets::{
         AssetError, AssetStatus, BuiltAs, Handle, Priority, SourceFor,
         events::{AssetFailed, AssetLoaded},
         graph::{Deps, Fetch, Graph},

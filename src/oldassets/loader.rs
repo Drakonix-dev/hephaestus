@@ -1,6 +1,6 @@
 use std::{any::Any, marker::PhantomData, sync::Arc};
 
-use crate::assets::{
+use crate::oldassets::{
     AssetError, BuiltAs, Handle, INVARIANT, SourceFor,
     graph::{Deps, Fetch},
     registry::{ErasedRegistry, Registry, SlotState},

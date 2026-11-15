@@ -1,5 +1,5 @@
 use crate::{
-    assets::{Asset, Handle},
+    oldassets::{Asset, Handle},
     events::Event,
 };
 

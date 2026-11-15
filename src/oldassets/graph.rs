@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::assets::{
+use crate::oldassets::{
     AssetError, AssetStatus, BuiltAs, Dependency, DependencyKind, Handle, INVARIANT, Resolved,
     SourceFor, registry::ErasedRegistry,
 };
