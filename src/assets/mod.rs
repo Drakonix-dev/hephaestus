@@ -1,10 +1,18 @@
-use std::{any::type_name, error::Error, marker::PhantomData};
+use std::{
+    any::{Any, TypeId, type_name},
+    collections::HashMap,
+    error::Error,
+    marker::PhantomData,
+    sync::Arc,
+};
 
 pub(crate) mod private {
     pub trait BuiltAsset: 'static {
         type Built: 'static;
     }
 }
+
+const INVARIANT: &str = "asset type-erasure invariant violated";
 
 pub trait Asset: private::BuiltAsset {}
 
@@ -29,6 +37,9 @@ pub enum AssetStatus {
 pub enum AssetError {
     #[error("asset not found: {t}x{id}")]
     NotFound { id: usize, t: &'static str },
+
+    #[error("asset {t} cannot be handled for source {s}")]
+    UnhandledAsset { t: &'static str, s: &'static str },
 }
 
 impl AssetError {
@@ -76,12 +87,49 @@ pub trait Source: 'static {
     fn read(&self) -> Result<Self::Output, AssetError>;
 }
 
+type BuildFn = Box<dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError>>;
+
+trait ErasedLoader {
+    fn parse(self: Arc<Self>, src: Box<dyn Any>) -> Result<BuildFn, AssetError>;
+}
+
 pub trait Loader<A: Asset>: 'static {
     type Parsed: 'static;
     type Raw;
 
     fn build(&self, parsed: Self::Parsed) -> Result<A::Built, AssetError>;
     fn parse(&self, raw: Self::Raw) -> Result<Self::Parsed, AssetError>;
+}
+
+struct LoaderCell<A, S, L>(L, PhantomData<fn() -> (A, S)>);
+
+impl<A, S, L> LoaderCell<A, S, L> {
+    fn new(l: L) -> Self {
+        Self(l, PhantomData)
+    }
+}
+
+impl<A, S, L> ErasedLoader for LoaderCell<A, S, L>
+where
+    A: Asset,
+    S: Source,
+    L: Loader<A, Raw = S::Output>,
+{
+    fn parse(self: Arc<Self>, src: Box<dyn Any>) -> Result<BuildFn, AssetError> {
+        let raw = src.downcast::<S>().expect(INVARIANT).read()?;
+        let parsed = self.0.parse(raw)?;
+
+        Ok(Box::new(move |handle, store| {
+            let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
+            let built = self.0.build(parsed)?;
+
+            store
+                .as_any_mut()
+                .downcast_mut::<Store<A>>()
+                .expect(INVARIANT)
+                .update(*h, SlotState::Ready(built))
+        }))
+    }
 }
 
 struct Slot<T> {
@@ -114,12 +162,46 @@ impl<T> From<&SlotState<T>> for AssetStatus {
     }
 }
 
-struct Registry<A: Asset> {
+struct Registry {
+    loaders: HashMap<(TypeId, TypeId), Box<dyn ErasedLoader>>,
+    stores: HashMap<TypeId, Box<dyn ErasedStore>>,
+}
+
+impl Registry {
+    fn new() -> Self {
+        Self {
+            loaders: HashMap::new(),
+            stores: HashMap::new(),
+        }
+    }
+
+    fn load<A: Asset, S: Source>(&mut self, src: S) -> Result<Handle<A>, AssetError> {
+        let key = (TypeId::of::<A>(), TypeId::of::<S::Output>());
+        let loader = self.loaders.get(&key).ok_or(AssetError::UnhandledAsset {
+            t: type_name::<A>(),
+            s: type_name::<S>(),
+        })?;
+    }
+
+    // fn load<A, S, L>()
+    // where
+    //     A: Asset,
+    //     S: Source,
+    //     L: Loader<A, Raw = S::Output>,
+    // {
+    // }
+}
+
+trait ErasedStore: Any {
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+struct Store<A: Asset> {
     free: Vec<usize>,
     items: Vec<Slot<A::Built>>,
 }
 
-impl<A: Asset> Registry<A> {
+impl<A: Asset> Store<A> {
     fn new() -> Self {
         Self {
             free: Vec::new(),
@@ -138,6 +220,27 @@ impl<A: Asset> Registry<A> {
         }
 
         Ok(&slot.state)
+    }
+
+    fn insert(&mut self, state: SlotState<A::Built>) -> Handle<A> {
+        if let Some(id) = self.free.pop() {
+            Handle::new(id, self.items[id].generation)
+        } else {
+            self.items.push(Slot::new(state));
+            Handle::new(self.items.len() - 1, 0)
+        }
+    }
+
+    fn update(&mut self, handle: Handle<A>, state: SlotState<A::Built>) -> Result<(), AssetError> {
+        let _ = self.get(&handle)?;
+        self.items[handle.id].state = state;
+        Ok(())
+    }
+}
+
+impl<A: Asset> ErasedStore for Store<A> {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
