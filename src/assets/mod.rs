@@ -3,7 +3,6 @@ use std::{
     collections::HashMap,
     error::Error,
     marker::PhantomData,
-    sync::Arc,
 };
 
 pub(crate) mod private {
@@ -90,7 +89,7 @@ pub trait Source: 'static {
 type BuildFn = Box<dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError>>;
 
 trait ErasedLoader {
-    fn parse(self: Arc<Self>, src: Box<dyn Any>) -> Result<BuildFn, AssetError>;
+    fn parse(self: Self, src: Box<dyn Any>) -> Result<BuildFn, AssetError>;
 }
 
 pub trait Loader<A: Asset>: 'static {
@@ -115,7 +114,7 @@ where
     S: Source,
     L: Loader<A, Raw = S::Output>,
 {
-    fn parse(self: Arc<Self>, src: Box<dyn Any>) -> Result<BuildFn, AssetError> {
+    fn parse(self: Self, src: Box<dyn Any>) -> Result<BuildFn, AssetError> {
         let raw = src.downcast::<S>().expect(INVARIANT).read()?;
         let parsed = self.0.parse(raw)?;
 
@@ -176,24 +175,32 @@ impl Registry {
     }
 
     fn load<A: Asset, S: Source>(&mut self, src: S) -> Result<Handle<A>, AssetError> {
-        let key = (TypeId::of::<A>(), TypeId::of::<S::Output>());
+        let asset_key = TypeId::of::<A>();
+        let key = (asset_key, TypeId::of::<S::Output>());
         let loader = self.loaders.get(&key).ok_or(AssetError::UnhandledAsset {
             t: type_name::<A>(),
             s: type_name::<S>(),
         })?;
-    }
 
-    // fn load<A, S, L>()
-    // where
-    //     A: Asset,
-    //     S: Source,
-    //     L: Loader<A, Raw = S::Output>,
-    // {
-    // }
+        let store = self
+            .stores
+            .entry(asset_key)
+            .or_insert_with(|| Box::new(Store::<A>::new()));
+
+        let (id, generation) = store.insert_pending();
+        let handle = Handle::new(id, generation);
+
+        let raw = src.read()?;
+        let build = loader.parse(Box::new(raw))?;
+
+        build(&handle, store.as_mut())?;
+        Ok(handle)
+    }
 }
 
 trait ErasedStore: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn insert_pending(&mut self) -> (usize, u64);
 }
 
 struct Store<A: Asset> {
@@ -242,17 +249,9 @@ impl<A: Asset> ErasedStore for Store<A> {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-}
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//
-//     struct MyAsset;
-//     impl GameAsset for MyAsset {
-//         type Built = MyAsset;
-//     }
-//
-//     #[test]
-//     fn loads_asset() {}
-// }
+    fn insert_pending(&mut self) -> (usize, u64) {
+        let handle = self.insert(SlotState::Pending);
+        (handle.id, handle.generation)
+    }
+}
