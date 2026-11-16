@@ -3,8 +3,14 @@ use std::{
     collections::HashMap,
     error::Error,
     marker::PhantomData,
-    sync::Arc,
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, Sender},
+    },
+    thread::{self, JoinHandle},
 };
+
+use crossbeam_channel::select_biased;
 
 use crate::config::EngineConfig;
 
@@ -42,6 +48,9 @@ pub enum AssetError {
 
     #[error("asset {t} cannot be handled for source {s}")]
     UnhandledAsset { t: &'static str, s: &'static str },
+
+    #[error("asset type unknown: {t}")]
+    UnknownAsset { t: &'static str },
 }
 
 impl AssetError {
@@ -52,6 +61,14 @@ impl AssetError {
         }
     }
 }
+
+pub enum Priority {
+    Critical,
+    Idle,
+    Streaming,
+}
+
+const TOTAL_PRIORITIES: usize = Priority::Streaming as usize + 1;
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Handle<T: Asset> {
@@ -93,7 +110,7 @@ type BuildFn =
     Box<dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError>>;
 
 trait ErasedLoader {
-    fn parse(self: Self, src: Box<dyn Any>) -> Result<BuildFn, AssetError>;
+    fn parse(self: Self, raw: Box<dyn Any>) -> Result<BuildFn, AssetError>;
 }
 
 pub trait Loader<A: Asset>: 'static {
@@ -104,23 +121,22 @@ pub trait Loader<A: Asset>: 'static {
     fn parse(&self, raw: Self::Raw) -> Result<Self::Parsed, AssetError>;
 }
 
-struct LoaderCell<A, S, L>(L, PhantomData<fn() -> (A, S)>);
+struct LoaderCell<A, L>(L, PhantomData<fn() -> A>);
 
-impl<A, S, L> LoaderCell<A, S, L> {
+impl<A, L> LoaderCell<A, L> {
     fn new(l: L) -> Self {
         Self(l, PhantomData)
     }
 }
 
-impl<A, S, L> ErasedLoader for LoaderCell<A, S, L>
+impl<A, L> ErasedLoader for LoaderCell<A, L>
 where
     A: Asset,
-    S: Source,
-    L: Loader<A, Raw = S::Output>,
+    L: Loader<A>,
 {
-    fn parse(self: Self, src: Box<dyn Any>) -> Result<BuildFn, AssetError> {
-        let raw = src.downcast::<S>().expect(INVARIANT).read()?;
-        let parsed = self.0.parse(raw)?;
+    fn parse(self: Self, raw: Box<dyn Any>) -> Result<BuildFn, AssetError> {
+        let raw = raw.downcast::<L::Raw>().expect(INVARIANT);
+        let parsed = self.0.parse(*raw)?;
 
         Ok(Box::new(move |handle, store| {
             let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
@@ -165,17 +181,31 @@ impl<T> From<&SlotState<T>> for AssetStatus {
     }
 }
 
+type ApplyFn = Box<dyn FnOnce(&mut dyn ErasedStore) -> Result<(), AssetError>>;
+
+struct QueuedAsset {
+    apply: ApplyFn,
+    type_id: TypeId,
+    type_name: &'static str,
+}
+
 struct Registry {
     loaders: HashMap<(TypeId, TypeId), Arc<dyn ErasedLoader>>,
     pool: Pool,
+    qrx: Receiver<QueuedAsset>,
+    qtx: Sender<QueuedAsset>,
     stores: HashMap<TypeId, Box<dyn ErasedStore>>,
 }
 
 impl Registry {
     fn new(cfg: &EngineConfig) -> Self {
+        let (qtx, qrx) = mpsc::channel();
+
         Self {
             loaders: HashMap::new(),
             pool: Pool::new(cfg),
+            qrx,
+            qtx,
             stores: HashMap::new(),
         }
     }
@@ -208,22 +238,142 @@ impl Registry {
         build(&handle, store.as_mut())?;
         Ok(handle)
     }
+
+    fn process_queued_assets(&mut self) -> Result<(), AssetError> {
+        while let Ok(queued) = self.qrx.try_recv() {
+            let store = self.stores.get_mut(&queued.type_id).ok_or(
+                AssetError::UnknownAsset {
+                    t: queued.type_name,
+                },
+            )?;
+
+            (queued.apply)(store.as_mut())?;
+        }
+
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------------
+
+    fn prepare_submit_fn<A: Asset>(&self, handle: Handle<A>) -> SubmitFn {
+        let tx = self.qtx.clone();
+        let get_apply = Box::new(|result| {
+            Box::new(|store| {
+                if let Ok(build) = result {
+                    build(&handle, store)
+                }
+            })
+        });
+
+        Box::new(|result| {
+            let _ = tx.send(QueuedAsset {
+                apply: get_apply(result),
+                type_id: TypeId::of::<A>(),
+                type_name: type_name::<A>(),
+            });
+        })
+    }
 }
 
-struct Pool {}
+type Job = Box<dyn FnOnce()>;
+
+type SubmitFn = Box<dyn FnOnce(Result<BuildFn, AssetError>)>;
+
+struct Pool {
+    handles: Vec<JoinHandle<()>>,
+    io_tx: crossbeam_channel::Sender<Job>,
+    p_txs: [crossbeam_channel::Sender<Job>; TOTAL_PRIORITIES],
+}
 
 impl Pool {
     fn new(cfg: &EngineConfig) -> Self {
-        Self {}
+        let mut handles = Vec::new();
+
+        let (io_tx, io_rx) = crossbeam_channel::unbounded();
+        for _ in 0..cfg.io_threads {
+            handles.push(Pool::spawn_io_worker(io_rx.clone()));
+        }
+
+        let (pc_tx, pc_rx) = crossbeam_channel::unbounded();
+        let (pi_tx, pi_rx) = crossbeam_channel::unbounded();
+        let (ps_tx, ps_rx) = crossbeam_channel::unbounded();
+        let p_txs = [pc_tx, pi_tx, ps_tx];
+
+        let num_threads = thread::available_parallelism()
+            .map(|n| n.get().saturating_sub(1).max(1))
+            .unwrap_or(1);
+
+        for _ in 0..num_threads {
+            let p_rxs = [pc_rx.clone(), pi_rx.clone(), ps_rx.clone()];
+            handles.push(Pool::spawn_parse_worker(p_rxs));
+        }
+
+        Self {
+            handles,
+            io_tx,
+            p_txs,
+        }
     }
 
-    fn load<A: Asset, S: Source>(
+    fn load<S: Source>(
         &self,
-        handle: Handle<A>,
         src: &S,
+        priority: Priority,
         loader: Arc<dyn ErasedLoader>,
-        submit: Box<dyn FnOnce(Result<BuildFn, AssetError>)>,
+        submit: SubmitFn,
     ) {
+        let ptx = self.p_txs[priority as usize].clone();
+        let _ = self.io_tx.send(Box::new(|| match src.read() {
+            Ok(raw) => {
+                let _ =
+                    ptx.send(Box::new(|| submit(loader.parse(Box::new(raw)))));
+            }
+            Err(e) => submit(Err(e)),
+        }));
+    }
+
+    // ------------------------------------------------------------------------
+
+    fn spawn_io_worker(rx: crossbeam_channel::Receiver<Job>) -> JoinHandle<()> {
+        thread::spawn(|| {
+            while let Ok(job) = rx.recv() {
+                (job)()
+            }
+        })
+    }
+
+    fn spawn_parse_worker(
+        rxs: [crossbeam_channel::Receiver<Job>; TOTAL_PRIORITIES],
+    ) -> JoinHandle<()> {
+        thread::spawn(|| {
+            loop {
+                select_biased!(
+                    recv(rxs[Priority::Critical as usize]) -> job => match job {
+                        Ok(job) => job(),
+                        Err(_) => break,
+                    },
+                    recv(rxs[Priority::Streaming as usize]) -> job => match job {
+                        Ok(job) => job(),
+                        Err(_) => break,
+                    },
+                    recv(rxs[Priority::Idle as usize]) -> job => match job {
+                        Ok(job) => job(),
+                        Err(_) => break,
+                    },
+                )
+            }
+        })
+    }
+}
+
+impl Drop for Pool {
+    fn drop(&mut self) {
+        drop(self.io_tx);
+        drop(self.p_txs);
+
+        for h in self.handles {
+            h.join().unwrap();
+        }
     }
 }
 
