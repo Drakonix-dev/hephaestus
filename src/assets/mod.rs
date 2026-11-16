@@ -13,6 +13,7 @@ use std::{
 use crossbeam_channel::select_biased;
 
 use crate::config::EngineConfig;
+pub(crate) use private::*;
 
 pub(crate) mod private {
     pub trait BuiltAsset: 'static {
@@ -97,7 +98,7 @@ impl<T: Asset> Clone for Handle<T> {
     }
 }
 
-pub struct SourceId(pub &'static str);
+pub struct SourceId<'a>(pub &'a str);
 
 pub trait Source: 'static {
     type Output;
