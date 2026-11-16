@@ -3,14 +3,11 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    oldassets::{
-        AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle, Loader,
-        SourceFor,
-    },
+    assets::{BuiltAsset, Handle, Loader},
     renderer::{Material, MaterialDefinition, Shader},
 };
 
-impl BuiltAs for Material {
+impl BuiltAsset for Material {
     type Built = MaterialInstance;
 }
 
@@ -29,7 +26,7 @@ impl MaterialLoader {
     }
 }
 
-impl Loader<Material, MaterialDefinition> for MaterialLoader {
+impl Loader<Material> for MaterialLoader {
     type Parsed = ();
 
     fn build(

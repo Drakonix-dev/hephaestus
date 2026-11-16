@@ -107,6 +107,19 @@ pub trait Source: 'static {
     fn read(&self) -> Result<Self::Output, AssetError>;
 }
 
+#[macro_export]
+macro_rules! asset_source {
+    ($t:ty, $id_body:block) => {
+        impl crate::assets::Source for $t {
+            type Output = ();
+            fn id(&self) -> crate::assets::SourceId $id_body
+            fn read(&self) -> Result<Self::Output, crate::assets::AssetError> {
+                Ok(())
+            }
+        }
+    };
+}
+
 type BuildFn =
     Box<dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError>>;
 

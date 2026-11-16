@@ -1,7 +1,8 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::{
-    assets::{Asset, AssetError, Handle, SourceFor},
+    asset_source,
+    assets::{Asset, Handle},
     renderer::{Shader, Texture},
 };
 
@@ -14,13 +15,7 @@ pub struct MaterialDefinition {
     pub uniforms: MaterialUniforms,
 }
 
-impl SourceFor<Material> for MaterialDefinition {
-    type Raw = ();
-
-    fn fetch(&self) -> Result<Self::Raw, AssetError> {
-        Ok(())
-    }
-}
+asset_source!(MaterialDefinition, { todo!() });
 
 #[repr(C)]
 #[derive(Clone, Copy, Default, Pod, Zeroable)]

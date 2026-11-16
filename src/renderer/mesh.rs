@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
-use crate::assets::{Asset, AssetError, SourceFor};
+use crate::{asset_source, assets::Asset};
 
 pub struct Mesh;
 impl Asset for Mesh {}
@@ -10,13 +10,7 @@ pub struct MeshDefinition {
     pub vertices: Vec<Vertex>,
 }
 
-impl SourceFor<Mesh> for MeshDefinition {
-    type Raw = ();
-
-    fn fetch(&self) -> Result<Self::Raw, AssetError> {
-        Ok(())
-    }
-}
+asset_source!(MeshDefinition, { todo!() });
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]

@@ -1,6 +1,6 @@
 use std::{fs, num::NonZeroU64, path::PathBuf};
 
-use crate::assets::{Asset, AssetError, SourceFor};
+use crate::assets::{Asset, AssetError, Source, SourceId};
 
 pub struct Shader;
 impl Asset for Shader {}
@@ -10,10 +10,14 @@ pub struct ShaderDefinition {
     pub source: PathBuf,
 }
 
-impl SourceFor<Shader> for ShaderDefinition {
-    type Raw = Vec<u8>;
+impl Source for ShaderDefinition {
+    type Output = Vec<u8>;
 
-    fn fetch(&self) -> Result<Self::Raw, AssetError> {
+    fn id(&self) -> SourceId {
+        todo!()
+    }
+
+    fn read(&self) -> Result<Self::Output, AssetError> {
         fs::read(self.source.as_path()).map_err(|err| err.into())
     }
 }
