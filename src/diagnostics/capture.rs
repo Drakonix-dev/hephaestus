@@ -246,7 +246,12 @@ impl<S: Subscriber> Layer<S> for CaptureLayer {
         self.record(RecordKind::Event, None, event.metadata(), visitor);
     }
 
-    fn on_new_span(&self, attrs: &Attributes<'_>, id: &Id, _ctx: Context<'_, S>) {
+    fn on_new_span(
+        &self,
+        attrs: &Attributes<'_>,
+        id: &Id,
+        _ctx: Context<'_, S>,
+    ) {
         let mut visitor = FieldVisitor::default();
         attrs.record(&mut visitor);
         self.record(
@@ -291,7 +296,10 @@ impl CaptureGuard {
         self.handle.count(target)
     }
 
-    pub fn find(&self, predicate: impl FnMut(&CapturedRecord) -> bool) -> Option<CapturedRecord> {
+    pub fn find(
+        &self,
+        predicate: impl FnMut(&CapturedRecord) -> bool,
+    ) -> Option<CapturedRecord> {
         self.handle.find(predicate)
     }
 
@@ -310,7 +318,8 @@ pub fn capture() -> CaptureGuard {
 
 pub fn capture_with_capacity(capacity: usize) -> CaptureGuard {
     let handle = CaptureHandle::new(capacity);
-    let subscriber = registry().with(handle.layer().with_filter(LevelFilter::TRACE));
+    let subscriber =
+        registry().with(handle.layer().with_filter(LevelFilter::TRACE));
     let _default = tracing::subscriber::set_default(subscriber);
     CaptureGuard { handle, _default }
 }
@@ -339,7 +348,9 @@ mod tests {
         span.record("draws", 7_u64);
 
         let record = capture
-            .find(|record| record.kind == RecordKind::Span && record.name == "work")
+            .find(|record| {
+                record.kind == RecordKind::Span && record.name == "work"
+            })
             .expect("span should be captured");
         assert_eq!(record.field_u64("draws"), Some(7));
     }
@@ -347,7 +358,8 @@ mod tests {
     #[test]
     fn captures_events_emitted_from_other_threads() {
         let handle = CaptureHandle::new(64);
-        let subscriber = registry().with(handle.layer().with_filter(LevelFilter::TRACE));
+        let subscriber =
+            registry().with(handle.layer().with_filter(LevelFilter::TRACE));
         let dispatch = tracing::Dispatch::new(subscriber);
         let thread_dispatch = dispatch.clone();
 

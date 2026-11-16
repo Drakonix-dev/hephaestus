@@ -19,7 +19,11 @@ pub struct Mat4(pub(crate) glam::Mat4);
 
 wrap_fns!(Mat4, glam::Mat4, {
     fn from_rotation_translation(rotation: Quat, translation: Vec3) -> Self;
-    fn from_scale_rotation_translation(scale: Vec3, rotation: Quat, translation: Vec3) -> Self;
+    fn from_scale_rotation_translation(
+        scale: Vec3,
+        rotation: Quat,
+        translation: Vec3,
+    ) -> Self;
     fn inverse(&self) -> Self;
 });
 

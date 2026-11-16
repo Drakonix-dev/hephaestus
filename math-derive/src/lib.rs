@@ -99,7 +99,8 @@ pub fn wrap_fns(input: TokenStream) -> TokenStream {
         let sig = &f.sig;
         let name = &sig.ident;
         let output = &sig.output;
-        let has_receiver = matches!(sig.inputs.first(), Some(FnArg::Receiver(_)));
+        let has_receiver =
+            matches!(sig.inputs.first(), Some(FnArg::Receiver(_)));
 
         let params = sig.inputs.iter().filter_map(|arg| match arg {
             FnArg::Typed(pat_type) => Some(pat_type),

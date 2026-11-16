@@ -5,14 +5,16 @@ use hephaestus::{
     config::EngineConfig,
     math::{Transform3D, Vec3},
     renderer::{
-        BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MaterialParams,
-        MaterialUniforms, MeshDefinition, MeshHandle, OrthographicProjection, Projection,
-        RenderDomain, RenderGraph, RenderPhase, SubPhase, TextureDefinition, TextureDimension,
-        Transform,
+        BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition,
+        MaterialHandle, MaterialParams, MaterialUniforms, MeshDefinition,
+        MeshHandle, OrthographicProjection, Projection, RenderDomain,
+        RenderGraph, RenderPhase, SubPhase, TextureDefinition,
+        TextureDimension, Transform,
     },
 };
 
-const TRIANGLE_PHASE: RenderPhase = RenderPhase::new(RenderDomain::World2D, Some(SubPhase::Opaque));
+const TRIANGLE_PHASE: RenderPhase =
+    RenderPhase::new(RenderDomain::World2D, Some(SubPhase::Opaque));
 
 struct TriangleExample {
     camera: Transform3D,
@@ -70,7 +72,11 @@ impl TriangleExample {
 }
 
 impl ApplicationInstance for TriangleExample {
-    fn render(&mut self, phase: &RenderPhase, _alpha: f32) -> Option<Vec<DrawCommand>> {
+    fn render(
+        &mut self,
+        phase: &RenderPhase,
+        _alpha: f32,
+    ) -> Option<Vec<DrawCommand>> {
         if *phase != TRIANGLE_PHASE {
             return None;
         }
@@ -83,7 +89,8 @@ impl ApplicationInstance for TriangleExample {
     }
 
     fn update(&mut self, ctx: &ApplicationContext, _dt: Duration) {
-        let view_proj = self.projection.project(ctx.viewport) * self.camera.view_matrix();
+        let view_proj =
+            self.projection.project(ctx.viewport) * self.camera.view_matrix();
         ctx.renderer.set_camera(view_proj);
     }
 }

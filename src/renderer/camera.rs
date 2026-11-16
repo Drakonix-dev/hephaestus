@@ -40,9 +40,12 @@ pub enum Projection {
 impl Projection {
     pub fn project(&self, viewport: &Viewport) -> Mat4 {
         match self {
-            Projection::Perspective(p) => {
-                view::perspective(p.fovy, viewport.aspect_ratio(), p.near, p.far)
-            }
+            Projection::Perspective(p) => view::perspective(
+                p.fovy,
+                viewport.aspect_ratio(),
+                p.near,
+                p.far,
+            ),
             Projection::Orthographic(o) => {
                 let half_height = o.height / 2.0;
                 let half_width = half_height * viewport.aspect_ratio();

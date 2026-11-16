@@ -2,7 +2,9 @@ use std::{borrow::Cow, sync::Arc};
 
 use crate::{
     assets::{AssetError, BuiltAs, Deps, Fetch, Loader, SourceFor},
-    renderer::{BindGroupLayout, BindingType, Shader, ShaderDefinition, ShaderStage},
+    renderer::{
+        BindGroupLayout, BindingType, Shader, ShaderDefinition, ShaderStage,
+    },
 };
 
 impl BuiltAs for Shader {
@@ -33,16 +35,20 @@ impl Loader<Shader, ShaderDefinition> for ShaderLoader {
         parsed: Self::Parsed,
         _: &Fetch,
     ) -> Result<ShaderInstance, AssetError> {
-        let cow = String::from_utf8(parsed).map_err(|err| AssetError::OperationFailed {
-            source: Box::new(err),
+        let cow = String::from_utf8(parsed).map_err(|err| {
+            AssetError::OperationFailed {
+                source: Box::new(err),
+            }
         })?;
 
-        let module = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(src.source.to_str().unwrap_or("unknown_shader")),
-                source: wgpu::ShaderSource::Wgsl(Cow::Owned(cow)),
-            });
+        let module =
+            self.device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some(
+                        src.source.to_str().unwrap_or("unknown_shader"),
+                    ),
+                    source: wgpu::ShaderSource::Wgsl(Cow::Owned(cow)),
+                });
 
         Ok(ShaderInstance {
             layout: src.layout.to_wgpu(self.device.as_ref()),
@@ -73,7 +79,9 @@ impl BindGroupLayout {
                     ShaderStage::None => wgpu::ShaderStages::NONE,
                     ShaderStage::Task => wgpu::ShaderStages::TASK,
                     ShaderStage::Vertex => wgpu::ShaderStages::VERTEX,
-                    ShaderStage::VertexFragment => wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ShaderStage::VertexFragment => {
+                        wgpu::ShaderStages::VERTEX_FRAGMENT
+                    }
                 };
 
                 let ty = match entry.ty {
@@ -81,17 +89,23 @@ impl BindGroupLayout {
                         has_dynamic_offset,
                         min_binding_size,
                     } => wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: false,
+                        },
                         has_dynamic_offset,
                         min_binding_size,
                     },
                     BindingType::Texture2D => wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        sample_type: wgpu::TextureSampleType::Float {
+                            filterable: true,
+                        },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
                     BindingType::TextureCube => wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        sample_type: wgpu::TextureSampleType::Float {
+                            filterable: true,
+                        },
                         view_dimension: wgpu::TextureViewDimension::Cube,
                         multisampled: false,
                     },
@@ -103,9 +117,9 @@ impl BindGroupLayout {
                         has_dynamic_offset,
                         min_binding_size,
                     },
-                    BindingType::Sampler => {
-                        wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)
-                    }
+                    BindingType::Sampler => wgpu::BindingType::Sampler(
+                        wgpu::SamplerBindingType::Filtering,
+                    ),
                 };
 
                 wgpu::BindGroupLayoutEntry {

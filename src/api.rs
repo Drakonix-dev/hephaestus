@@ -6,7 +6,9 @@ use crate::{
     config::RuntimeConfig,
     events::EventBus,
     platform::PlatformError,
-    renderer::{DrawCommand, RenderError, RenderPhase, RendererHandle, Viewport},
+    renderer::{
+        DrawCommand, RenderError, RenderPhase, RendererHandle, Viewport,
+    },
 };
 
 pub trait Application {
@@ -21,7 +23,11 @@ pub trait ApplicationInstance {
     fn handle_error(&mut self, _err: impl Into<EngineError>) {}
     fn update(&mut self, _ctx: &ApplicationContext, _dt: time::Duration) {}
     fn quit(&mut self) {}
-    fn render(&mut self, _phase: &RenderPhase, _alpha: f32) -> Option<Vec<DrawCommand>> {
+    fn render(
+        &mut self,
+        _phase: &RenderPhase,
+        _alpha: f32,
+    ) -> Option<Vec<DrawCommand>> {
         None
     }
 }

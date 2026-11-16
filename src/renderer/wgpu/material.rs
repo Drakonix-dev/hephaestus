@@ -3,7 +3,10 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    oldassets::{AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle, Loader, SourceFor},
+    oldassets::{
+        AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle, Loader,
+        SourceFor,
+    },
     renderer::{Material, MaterialDefinition, Shader},
 };
 
@@ -47,28 +50,26 @@ impl Loader<Material, MaterialDefinition> for MaterialLoader {
             .collect::<Result<_, AssetError>>()?;
 
         let uniform_data = bytemuck::bytes_of(&src.uniforms);
-        let uniform_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Material Uniform Buffer"),
-                contents: uniform_data,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+        let uniform_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Material Uniform Buffer"),
+                    contents: uniform_data,
+                    usage: wgpu::BufferUsages::UNIFORM
+                        | wgpu::BufferUsages::COPY_DST,
+                });
 
         let mut entries = vec![wgpu::BindGroupEntry {
             binding: 0,
             resource: uniform_buffer.as_entire_binding(),
         }]
         .into_iter()
-        .chain(
-            texture_views
-                .iter()
-                .enumerate()
-                .map(|(i, view)| wgpu::BindGroupEntry {
-                    binding: (i + 1) as u32,
-                    resource: wgpu::BindingResource::TextureView(view),
-                }),
-        )
+        .chain(texture_views.iter().enumerate().map(|(i, view)| {
+            wgpu::BindGroupEntry {
+                binding: (i + 1) as u32,
+                resource: wgpu::BindingResource::TextureView(view),
+            }
+        }))
         .collect::<Vec<_>>();
 
         let sampler = if texture_views.is_empty() {
@@ -93,11 +94,12 @@ impl Loader<Material, MaterialDefinition> for MaterialLoader {
             });
         }
 
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Material Bind Group"),
-            layout: &shader.layout,
-            entries: &entries,
-        });
+        let bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Material Bind Group"),
+                layout: &shader.layout,
+                entries: &entries,
+            });
 
         Ok(MaterialInstance {
             bind_group,

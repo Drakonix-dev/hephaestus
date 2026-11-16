@@ -4,12 +4,13 @@ mod config;
 pub mod diag;
 
 use tracing_subscriber::{
-    EnvFilter, Layer, filter::LevelFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
+    EnvFilter, Layer, filter::LevelFilter, fmt, layer::SubscriberExt,
+    util::SubscriberInitExt,
 };
 
 pub use capture::{
-    CaptureGuard, CaptureHandle, CapturedRecord, FieldValue, RecordKind, capture,
-    capture_with_capacity,
+    CaptureGuard, CaptureHandle, CapturedRecord, FieldValue, RecordKind,
+    capture, capture_with_capacity,
 };
 pub use config::{DiagnosticsConfig, OtlpConfig};
 

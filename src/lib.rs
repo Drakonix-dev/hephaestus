@@ -11,7 +11,9 @@ pub mod math;
 mod platform;
 pub mod renderer;
 
-pub use api::{Application, ApplicationContext, ApplicationInstance, EngineError};
+pub use api::{
+    Application, ApplicationContext, ApplicationInstance, EngineError,
+};
 pub use platform::PlatformError;
 
 use crate::{config::EngineConfig, renderer::RenderGraph};
@@ -46,7 +48,9 @@ impl<A: crate::ApplicationInstance> InstanceApplication<A> {
     }
 }
 
-impl<A: crate::ApplicationInstance> crate::Application for InstanceApplication<A> {
+impl<A: crate::ApplicationInstance> crate::Application
+    for InstanceApplication<A>
+{
     type Instance = A;
 
     fn create(&mut self, ctx: &ApplicationContext) -> Self::Instance {

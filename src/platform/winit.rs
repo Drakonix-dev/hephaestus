@@ -11,14 +11,18 @@ use winit::{
 use crate::{
     Application, ApplicationContext, ApplicationInstance, EngineError,
     assets::AssetManager,
-    commands::{EngineCommand, EngineCommandReader, EngineCommandWriter, engine_command_channel},
+    commands::{
+        EngineCommand, EngineCommandReader, EngineCommandWriter,
+        engine_command_channel,
+    },
     config::{EngineConfig, RuntimeConfig, WindowMode},
     diagnostics::diag,
     events::{self, EventBus},
     platform::{HasViewport, PlatformError},
     renderer::{
-        FrameError, RenderError, RenderGraph, Renderer, RendererHandle, Viewport,
-        backend::wgpu::Renderer as WgpuRenderer, render_queue_channel,
+        FrameError, RenderError, RenderGraph, Renderer, RendererHandle,
+        Viewport, backend::wgpu::Renderer as WgpuRenderer,
+        render_queue_channel,
     },
 };
 
@@ -77,10 +81,16 @@ impl<A: Application> AppState<A> {
         }
     }
 
-    fn init_handler(&mut self, event_loop: &ActiveEventLoop) -> Result<(), EngineError> {
-        let mut attrs = Window::default_attributes().with_title(self.cfg.window_title.clone());
+    fn init_handler(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+    ) -> Result<(), EngineError> {
+        let mut attrs = Window::default_attributes()
+            .with_title(self.cfg.window_title.clone());
         if self.cfg.window_mode == WindowMode::BorderlessFullscreen {
-            attrs = attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+            attrs = attrs.with_fullscreen(Some(
+                winit::window::Fullscreen::Borderless(None),
+            ))
         }
 
         let window = match event_loop.create_window(attrs) {
@@ -92,7 +102,11 @@ impl<A: Application> AppState<A> {
         let mut renderer_handle = RendererHandle::new(writer);
 
         let mut assets = AssetManager::new(&self.cfg);
-        let backend = pollster::block_on(WgpuRenderer::new(&self.cfg, window, &mut assets))?;
+        let backend = pollster::block_on(WgpuRenderer::new(
+            &self.cfg,
+            window,
+            &mut assets,
+        ))?;
         let renderer = Renderer::new(backend, &self.graph, reader)?;
 
         let runtime_config = RuntimeConfig::from(&self.cfg);
@@ -123,7 +137,8 @@ impl<A: Application> AppState<A> {
             return;
         };
 
-        let _frame = tracing::info_span!(target: diag::FRAME, "frame").entered();
+        let _frame =
+            tracing::info_span!(target: diag::FRAME, "frame").entered();
 
         let viewport = handler.renderer.viewport();
         let ctx = ApplicationContext {
@@ -152,7 +167,8 @@ impl<A: Application> AppState<A> {
         let alpha = if handler.accumulator.is_zero() {
             0.0
         } else {
-            handler.accumulator.as_secs_f32() / handler.cfg.tick_freq.as_secs_f32()
+            handler.accumulator.as_secs_f32()
+                / handler.cfg.tick_freq.as_secs_f32()
         };
 
         handler
@@ -174,8 +190,9 @@ impl<A: Application> AppState<A> {
 
         let mut res = handler.renderer.submit(&prepared);
 
-        if let Err(RenderError::Frame(FrameError::SwapchainLost | FrameError::OutdatedSurface)) =
-            &res
+        if let Err(RenderError::Frame(
+            FrameError::SwapchainLost | FrameError::OutdatedSurface,
+        )) = &res
         {
             tracing::warn!(
                 target: diag::FRAME,
@@ -218,7 +235,8 @@ impl<A: Application> ApplicationHandler for AppState<A> {
                     dirty = true;
                 }
                 EngineCommand::SetTickFreq(freq) => {
-                    self.cfg.tick_freq = freq.max(time::Duration::from_nanos(1));
+                    self.cfg.tick_freq =
+                        freq.max(time::Duration::from_nanos(1));
                     dirty = true;
                 }
                 EngineCommand::SetWindowMode(mode) => {
@@ -237,13 +255,19 @@ impl<A: Application> ApplicationHandler for AppState<A> {
         };
 
         handler.cfg = RuntimeConfig::from(&self.cfg);
-        handler
-            .renderer
-            .set_fullscreen(handler.cfg.window_mode == WindowMode::BorderlessFullscreen);
+        handler.renderer.set_fullscreen(
+            handler.cfg.window_mode == WindowMode::BorderlessFullscreen,
+        );
         handler.renderer.set_present_mode(handler.cfg.present_mode);
     }
 
-    fn device_event(&mut self, _: &ActiveEventLoop, _: DeviceId, _: DeviceEvent) {}
+    fn device_event(
+        &mut self,
+        _: &ActiveEventLoop,
+        _: DeviceId,
+        _: DeviceEvent,
+    ) {
+    }
 
     fn exiting(&mut self, _: &ActiveEventLoop) {
         self.events.publish(events::Exiting);
@@ -277,10 +301,19 @@ impl<A: Application> ApplicationHandler for AppState<A> {
         self.events.publish(events::Suspended);
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _: WindowId,
+        event: WindowEvent,
+    ) {
         match event {
-            WindowEvent::CloseRequested | WindowEvent::Destroyed => event_loop.exit(),
-            WindowEvent::Focused(focused) => self.events.publish(events::WindowFocused { focused }),
+            WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                event_loop.exit()
+            }
+            WindowEvent::Focused(focused) => {
+                self.events.publish(events::WindowFocused { focused })
+            }
             WindowEvent::Occluded(occluded) => {
                 self.events.publish(events::WindowOccluded { occluded })
             }
@@ -314,7 +347,8 @@ impl HasViewport for Window {
     }
 
     fn set_fullscreen_enabled(&self, enabled: bool) {
-        let fullscreen = enabled.then_some(winit::window::Fullscreen::Borderless(None));
+        let fullscreen =
+            enabled.then_some(winit::window::Fullscreen::Borderless(None));
         self.set_fullscreen(fullscreen);
     }
 }

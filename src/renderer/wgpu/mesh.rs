@@ -36,21 +36,21 @@ impl Loader<Mesh, MeshDefinition> for MeshLoader {
         _: Self::Parsed,
         _: &Fetch,
     ) -> Result<MeshInstance, AssetError> {
-        let vertex_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Mesh Vertex Buffer"),
-                contents: bytemuck::cast_slice(&src.vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+        let vertex_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Mesh Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&src.vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
 
-        let index_buffer = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Mesh Index Buffer"),
-                contents: bytemuck::cast_slice(&src.indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+        let index_buffer =
+            self.device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Mesh Index Buffer"),
+                    contents: bytemuck::cast_slice(&src.indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
 
         Ok(MeshInstance {
             index_buffer,

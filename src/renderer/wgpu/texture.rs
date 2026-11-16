@@ -19,7 +19,10 @@ pub(crate) struct TextureLoader {
 }
 
 impl TextureLoader {
-    pub(crate) fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub(crate) fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+    ) -> Self {
         Self { device, queue }
     }
 }
@@ -57,7 +60,8 @@ impl Loader<Texture, TextureDefinition> for TextureLoader {
             sample_count: 1,
             dimension,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
 

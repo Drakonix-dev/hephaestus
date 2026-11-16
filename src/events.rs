@@ -26,7 +26,10 @@ impl EventBus {
         erased_entry!(self.buffers, Buffer, T).publish(v)
     }
 
-    pub fn read<'a, T: Event>(&'a self, cursor: &mut Cursor<T>) -> impl Iterator<Item = &'a T> {
+    pub fn read<'a, T: Event>(
+        &'a self,
+        cursor: &mut Cursor<T>,
+    ) -> impl Iterator<Item = &'a T> {
         erased_get!(self.buffers, Buffer, T)
             .map(|buf| buf.read(cursor))
             .into_iter()

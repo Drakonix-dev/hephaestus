@@ -32,8 +32,12 @@ impl<T> Buffer<T> {
         self.current.push(v);
     }
 
-    pub(crate) fn read(&self, cursor: &mut Cursor<T>) -> impl Iterator<Item = &T> {
-        let offset = (cursor.last_read.max(self.oldest_id) - self.oldest_id) as usize;
+    pub(crate) fn read(
+        &self,
+        cursor: &mut Cursor<T>,
+    ) -> impl Iterator<Item = &T> {
+        let offset =
+            (cursor.last_read.max(self.oldest_id) - self.oldest_id) as usize;
         cursor.last_read = self.count;
 
         let (p, c) = if offset < self.prev.len() {

@@ -9,14 +9,17 @@ mod texture;
 
 pub(crate) mod wgpu;
 
-pub use camera::{OrthographicProjection, PerspectiveProjection, Projection, Viewport};
+pub use camera::{
+    OrthographicProjection, PerspectiveProjection, Projection, Viewport,
+};
 pub use commands::{DrawCommand, DrawMesh, Renderable, Transform};
 pub use error::{FrameError, RenderError};
 pub use graph::{RenderDomain, RenderGraph, RenderPhase, SubPhase};
 pub use material::{Material, MaterialDefinition, MaterialUniforms};
 pub use mesh::{Mesh, MeshDefinition, Vertex};
 pub use shader::{
-    BindGroupLayout, BindingDesc, BindingType, Shader, ShaderDefinition, ShaderStage,
+    BindGroupLayout, BindingDesc, BindingType, Shader, ShaderDefinition,
+    ShaderStage,
 };
 pub use texture::{Texture, TextureDefinition, TextureDimension};
 

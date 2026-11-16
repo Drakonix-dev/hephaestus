@@ -78,13 +78,21 @@ impl RenderGraph {
         self.add_dependency(after, phase)
     }
 
-    pub fn add_before(mut self, phase: RenderPhase, before: RenderPhase) -> Self {
+    pub fn add_before(
+        mut self,
+        phase: RenderPhase,
+        before: RenderPhase,
+    ) -> Self {
         self.nodes.insert(phase);
         self.edges.entry(phase).or_default();
         self.add_dependency(phase, before)
     }
 
-    pub fn add_dependency(mut self, before: RenderPhase, after: RenderPhase) -> Self {
+    pub fn add_dependency(
+        mut self,
+        before: RenderPhase,
+        after: RenderPhase,
+    ) -> Self {
         assert!(
             self.nodes.contains(&before) && self.nodes.contains(&after),
             "Phases must exist"
@@ -219,7 +227,8 @@ mod tests {
             .unwrap();
 
         let ui_idx = order.iter().position(|p| p == &UI).unwrap();
-        let world_idx = order.iter().position(|p| p == &WORLD3D_OPAQUE).unwrap();
+        let world_idx =
+            order.iter().position(|p| p == &WORLD3D_OPAQUE).unwrap();
         assert!(
             world_idx < ui_idx,
             "expected {WORLD3D_OPAQUE:?} before {UI:?}, got {order:?}"
@@ -235,7 +244,8 @@ mod tests {
             .unwrap();
 
         let ui_idx = order.iter().position(|p| p == &UI).unwrap();
-        let world_idx = order.iter().position(|p| p == &WORLD3D_OPAQUE).unwrap();
+        let world_idx =
+            order.iter().position(|p| p == &WORLD3D_OPAQUE).unwrap();
         assert!(
             world_idx < ui_idx,
             "expected {WORLD3D_OPAQUE:?} before {UI:?}, got {order:?}"

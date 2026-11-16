@@ -5,14 +5,16 @@ use hephaestus::{
     config::EngineConfig,
     math::{Interpolated, Quat, Transform3D, Vec3},
     renderer::{
-        BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition, MaterialHandle, MaterialParams,
-        MaterialUniforms, MeshDefinition, MeshHandle, PerspectiveProjection, Projection,
-        RenderDomain, RenderGraph, RenderPhase, SubPhase, TextureDefinition, TextureDimension,
-        Transform,
+        BuiltinShader, DrawCommand, DrawMesh, MaterialDefinition,
+        MaterialHandle, MaterialParams, MaterialUniforms, MeshDefinition,
+        MeshHandle, PerspectiveProjection, Projection, RenderDomain,
+        RenderGraph, RenderPhase, SubPhase, TextureDefinition,
+        TextureDimension, Transform,
     },
 };
 
-const CUBE_PHASE: RenderPhase = RenderPhase::new(RenderDomain::World3D, Some(SubPhase::Opaque));
+const CUBE_PHASE: RenderPhase =
+    RenderPhase::new(RenderDomain::World3D, Some(SubPhase::Opaque));
 const ROTATION_SPEED: f32 = 1.0;
 
 struct TexturedCubeExample {
@@ -75,7 +77,11 @@ impl TexturedCubeExample {
 }
 
 impl ApplicationInstance for TexturedCubeExample {
-    fn render(&mut self, phase: &RenderPhase, alpha: f32) -> Option<Vec<DrawCommand>> {
+    fn render(
+        &mut self,
+        phase: &RenderPhase,
+        alpha: f32,
+    ) -> Option<Vec<DrawCommand>> {
         if *phase != CUBE_PHASE {
             return None;
         }
@@ -94,7 +100,8 @@ impl ApplicationInstance for TexturedCubeExample {
         cube.rotation = Quat::from_axis_angle(axis, self.angle);
         self.cube.set(cube);
 
-        let view_proj = self.projection.project(ctx.viewport) * self.camera.view_matrix();
+        let view_proj =
+            self.projection.project(ctx.viewport) * self.camera.view_matrix();
         ctx.renderer.set_camera(view_proj);
     }
 }

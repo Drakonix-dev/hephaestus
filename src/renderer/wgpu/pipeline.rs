@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use crate::{
-    assets::{Asset, AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle, Loader, SourceFor},
+    assets::{
+        Asset, AssetError, BuiltAs, DependencyKind, Deps, Fetch, Handle,
+        Loader, SourceFor,
+    },
     renderer::{Shader, Vertex},
 };
 
@@ -56,13 +59,17 @@ impl Loader<Pipeline, PipelineDefinition> for PipelineLoader {
         fetch: &Fetch,
     ) -> Result<PipelineInstance, AssetError> {
         let shader = fetch.get_handle(src.shader)?.required()?;
-        let pipeline_layout = self
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = self.device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
                 label: Some("Pipeline Layout"),
-                bind_group_layouts: &[&src.globals_layout, &shader.layout, &src.model_layout],
+                bind_group_layouts: &[
+                    &src.globals_layout,
+                    &shader.layout,
+                    &src.model_layout,
+                ],
                 push_constant_ranges: &[],
-            });
+            },
+        );
 
         let vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
@@ -86,21 +93,22 @@ impl Loader<Pipeline, PipelineDefinition> for PipelineLoader {
             None
         };
 
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = self.device.create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
                 label: Some("Render Pipeline"),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     buffers: &[vertex_buffer_layout],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    compilation_options:
+                        wgpu::PipelineCompilationOptions::default(),
                     entry_point: Some("vs_main"),
                     module: &shader.module,
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader.module,
                     entry_point: Some("fs_main"),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    compilation_options:
+                        wgpu::PipelineCompilationOptions::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         blend: Some(wgpu::BlendState::REPLACE),
                         format: src.format,
@@ -112,7 +120,8 @@ impl Loader<Pipeline, PipelineDefinition> for PipelineLoader {
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
                 cache: None,
-            });
+            },
+        );
 
         Ok(PipelineInstance { pipeline })
     }

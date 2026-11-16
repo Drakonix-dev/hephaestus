@@ -3,7 +3,10 @@ use std::{
     collections::HashMap,
     error::Error,
     marker::PhantomData,
+    sync::Arc,
 };
+
+use crate::config::EngineConfig;
 
 pub(crate) mod private {
     pub trait BuiltAsset: 'static {
@@ -86,7 +89,8 @@ pub trait Source: 'static {
     fn read(&self) -> Result<Self::Output, AssetError>;
 }
 
-type BuildFn = Box<dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError>>;
+type BuildFn =
+    Box<dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError>>;
 
 trait ErasedLoader {
     fn parse(self: Self, src: Box<dyn Any>) -> Result<BuildFn, AssetError>;
@@ -162,25 +166,34 @@ impl<T> From<&SlotState<T>> for AssetStatus {
 }
 
 struct Registry {
-    loaders: HashMap<(TypeId, TypeId), Box<dyn ErasedLoader>>,
+    loaders: HashMap<(TypeId, TypeId), Arc<dyn ErasedLoader>>,
+    pool: Pool,
     stores: HashMap<TypeId, Box<dyn ErasedStore>>,
 }
 
 impl Registry {
-    fn new() -> Self {
+    fn new(cfg: &EngineConfig) -> Self {
         Self {
             loaders: HashMap::new(),
+            pool: Pool::new(cfg),
             stores: HashMap::new(),
         }
     }
 
-    fn load<A: Asset, S: Source>(&mut self, src: S) -> Result<Handle<A>, AssetError> {
+    fn load<A: Asset, S: Source>(
+        &mut self,
+        src: S,
+    ) -> Result<Handle<A>, AssetError> {
         let asset_key = TypeId::of::<A>();
         let key = (asset_key, TypeId::of::<S::Output>());
-        let loader = self.loaders.get(&key).ok_or(AssetError::UnhandledAsset {
-            t: type_name::<A>(),
-            s: type_name::<S>(),
-        })?;
+        let loader = self
+            .loaders
+            .get(&key)
+            .ok_or(AssetError::UnhandledAsset {
+                t: type_name::<A>(),
+                s: type_name::<S>(),
+            })?
+            .clone();
 
         let store = self
             .stores
@@ -192,9 +205,25 @@ impl Registry {
 
         let raw = src.read()?;
         let build = loader.parse(Box::new(raw))?;
-
         build(&handle, store.as_mut())?;
         Ok(handle)
+    }
+}
+
+struct Pool {}
+
+impl Pool {
+    fn new(cfg: &EngineConfig) -> Self {
+        Self {}
+    }
+
+    fn load<A: Asset, S: Source>(
+        &self,
+        handle: Handle<A>,
+        src: &S,
+        loader: Arc<dyn ErasedLoader>,
+        submit: Box<dyn FnOnce(Result<BuildFn, AssetError>)>,
+    ) {
     }
 }
 
@@ -216,7 +245,10 @@ impl<A: Asset> Store<A> {
         }
     }
 
-    fn get(&self, handle: &Handle<A>) -> Result<&SlotState<A::Built>, AssetError> {
+    fn get(
+        &self,
+        handle: &Handle<A>,
+    ) -> Result<&SlotState<A::Built>, AssetError> {
         if handle.id >= self.items.len() {
             return Err(AssetError::not_found(handle));
         }
@@ -238,7 +270,11 @@ impl<A: Asset> Store<A> {
         }
     }
 
-    fn update(&mut self, handle: Handle<A>, state: SlotState<A::Built>) -> Result<(), AssetError> {
+    fn update(
+        &mut self,
+        handle: Handle<A>,
+        state: SlotState<A::Built>,
+    ) -> Result<(), AssetError> {
         let _ = self.get(&handle)?;
         self.items[handle.id].state = state;
         Ok(())
