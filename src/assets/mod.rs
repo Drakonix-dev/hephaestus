@@ -1,8 +1,11 @@
 use std::{
     any::{Any, TypeId, type_name},
+    borrow::Cow,
     collections::HashMap,
     error::Error,
+    fs,
     marker::PhantomData,
+    str::Bytes,
     sync::{
         Arc,
         mpsc::{self, Receiver, Sender},
@@ -47,8 +50,14 @@ pub enum AssetError {
     #[error("asset not found: {t}x{id}")]
     NotFound { id: usize, t: &'static str },
 
-    #[error("asset {t} cannot be handled for source {s}")]
-    UnhandledAsset { t: &'static str, s: &'static str },
+    #[error("operation failed")]
+    OperationFailed {
+        #[source]
+        source: Box<dyn Error + Send + Sync>,
+    },
+
+    #[error("asset {t} cannot be handled for descriptor {d}")]
+    UnhandledAsset { d: &'static str, t: &'static str },
 
     #[error("asset type unknown: {t}")]
     UnknownAsset { t: &'static str },
@@ -98,41 +107,62 @@ impl<T: Asset> Clone for Handle<T> {
     }
 }
 
-pub struct SourceId<'a>(pub &'a str);
-
-pub trait Source: 'static {
-    type Output;
-
-    fn id(&self) -> SourceId;
-    fn read(&self) -> Result<Self::Output, AssetError>;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AssetPath {
+    pub scheme: Cow<'static, str>,
+    pub path: Cow<'static, str>,
 }
 
-#[macro_export]
-macro_rules! asset_source {
-    ($t:ty, $id_body:block) => {
-        impl crate::assets::Source for $t {
-            type Output = ();
-            fn id(&self) -> crate::assets::SourceId $id_body
-            fn read(&self) -> Result<Self::Output, crate::assets::AssetError> {
-                Ok(())
-            }
-        }
-    };
+pub trait AssetReader {
+    fn read(&self, path: &str) -> Result<Bytes, AssetError>;
+}
+
+pub enum AssetData<'a> {
+    Inline(Bytes<'a>),
+    Path(&'a AssetPath),
+}
+
+pub struct AssetKey(u64);
+
+pub trait Descriptor {
+    fn external(&self) -> Option<AssetData> {
+        None
+    }
+
+    fn key(&self) -> Option<AssetKey> {
+        None
+    }
+
+    fn label(&self) -> Option<Cow<'_, str>> {
+        None
+    }
 }
 
 type BuildFn =
     Box<dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError>>;
 
 trait ErasedLoader {
-    fn parse(self: Self, raw: Box<dyn Any>) -> Result<BuildFn, AssetError>;
+    fn parse(
+        self: Self,
+        desc: Box<dyn Any>,
+        bytes: Option<Bytes>,
+    ) -> Result<BuildFn, AssetError>;
 }
 
 pub trait Loader<A: Asset>: 'static {
+    type Desc: Descriptor;
     type Parsed: 'static;
-    type Raw;
 
-    fn build(&self, parsed: Self::Parsed) -> Result<A::Built, AssetError>;
-    fn parse(&self, raw: Self::Raw) -> Result<Self::Parsed, AssetError>;
+    fn build(
+        &self,
+        desc: &Self::Desc,
+        parsed: Self::Parsed,
+    ) -> Result<A::Built, AssetError>;
+    fn parse(
+        &self,
+        desc: &Self::Desc,
+        bytes: Option<Bytes>,
+    ) -> Result<Self::Parsed, AssetError>;
 }
 
 struct LoaderCell<A, L>(L, PhantomData<fn() -> A>);
@@ -148,13 +178,17 @@ where
     A: Asset,
     L: Loader<A>,
 {
-    fn parse(self: Self, raw: Box<dyn Any>) -> Result<BuildFn, AssetError> {
-        let raw = raw.downcast::<L::Raw>().expect(INVARIANT);
-        let parsed = self.0.parse(*raw)?;
+    fn parse(
+        self: Self,
+        desc: Box<dyn Any>,
+        bytes: Option<Bytes>,
+    ) -> Result<BuildFn, AssetError> {
+        let desc = desc.downcast::<Box<L::Desc>>().expect(INVARIANT);
+        let parsed = self.0.parse(&desc, bytes)?;
 
-        Ok(Box::new(move |handle, store| {
+        Ok(Box::new(|handle, store| {
             let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
-            let built = self.0.build(parsed)?;
+            let built = self.0.build(&desc, parsed)?;
 
             store
                 .as_any_mut()
@@ -224,18 +258,19 @@ impl Registry {
         }
     }
 
-    fn load<A: Asset, S: Source>(
+    fn load<A: Asset, D: Descriptor>(
         &mut self,
-        src: S,
+        desc: D,
+        priority: Priority,
     ) -> Result<Handle<A>, AssetError> {
         let asset_key = TypeId::of::<A>();
-        let key = (asset_key, TypeId::of::<S::Output>());
+        let key = (asset_key, TypeId::of::<D>());
         let loader = self
             .loaders
             .get(&key)
             .ok_or(AssetError::UnhandledAsset {
+                d: type_name::<D>(),
                 t: type_name::<A>(),
-                s: type_name::<S>(),
             })?
             .clone();
 
@@ -247,9 +282,24 @@ impl Registry {
         let (id, generation) = store.insert_pending();
         let handle = Handle::new(id, generation);
 
-        let raw = src.read()?;
-        let build = loader.parse(Box::new(raw))?;
-        build(&handle, store.as_mut())?;
+        let tx = self.qtx.clone();
+        let get_apply = Box::new(|result| {
+            Box::new(|| {
+                if let Ok(build) = result {
+                    build(&handle, store)
+                }
+            })
+        });
+        let submit = Box::new(|result| {
+            let _ = tx.send(QueuedAsset {
+                apply: get_apply(result),
+                type_id: TypeId::of::<A>(),
+                type_name: type_name::<A>(),
+            });
+        });
+
+        self.pool.load(desc, priority, loader, submit);
+
         Ok(handle)
     }
 
@@ -265,27 +315,6 @@ impl Registry {
         }
 
         Ok(())
-    }
-
-    // ------------------------------------------------------------------------
-
-    fn prepare_submit_fn<A: Asset>(&self, handle: Handle<A>) -> SubmitFn {
-        let tx = self.qtx.clone();
-        let get_apply = Box::new(|result| {
-            Box::new(|store| {
-                if let Ok(build) = result {
-                    build(&handle, store)
-                }
-            })
-        });
-
-        Box::new(|result| {
-            let _ = tx.send(QueuedAsset {
-                apply: get_apply(result),
-                type_id: TypeId::of::<A>(),
-                type_name: type_name::<A>(),
-            });
-        })
     }
 }
 
@@ -329,21 +358,37 @@ impl Pool {
         }
     }
 
-    fn load<S: Source>(
+    fn load<D: Descriptor>(
         &self,
-        src: &S,
+        desc: D,
         priority: Priority,
         loader: Arc<dyn ErasedLoader>,
         submit: SubmitFn,
     ) {
         let ptx = self.p_txs[priority as usize].clone();
-        let _ = self.io_tx.send(Box::new(|| match src.read() {
-            Ok(raw) => {
-                let _ =
-                    ptx.send(Box::new(|| submit(loader.parse(Box::new(raw)))));
+        let external = desc.external();
+
+        let parse =
+            |bytes| submit(bytes.and_then(|b| loader.parse(Box::new(desc), b)));
+
+        match external {
+            None => {
+                let _ = ptx.send(Box::new(|| parse(Ok(None))));
             }
-            Err(e) => submit(Err(e)),
-        }));
+            Some(AssetData::Inline(b)) => {
+                let _ = ptx.send(Box::new(|| parse(Ok(Some(b)))));
+            }
+            Some(AssetData::Path(path)) => {
+                let _ = self.io_tx.send(Box::new(|| {
+                    let bytes = fs::read(&path)
+                        .map(|b| Some(b.into()))
+                        .map_err(|e| AssetError::OperationFailed {
+                            source: Box::new(e),
+                        });
+                    let _ = ptx.send(Box::new(|| parse(bytes)));
+                }));
+            }
+        }
     }
 
     // ------------------------------------------------------------------------
