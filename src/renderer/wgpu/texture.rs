@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
+
 use crate::{
-    assets::{AssetError, BuiltAs, Deps, Fetch, Loader, SourceFor},
+    assets::{AssetError, BuiltAsset, Loader},
     renderer::{Texture, TextureDefinition, TextureDimension},
 };
 
-impl BuiltAs for Texture {
+impl BuiltAsset for Texture {
     type Built = TextureInstance;
 }
 
@@ -27,14 +29,14 @@ impl TextureLoader {
     }
 }
 
-impl Loader<Texture, TextureDefinition> for TextureLoader {
-    type Parsed = <TextureDefinition as SourceFor<Texture>>::Raw;
+impl Loader<Texture> for TextureLoader {
+    type Desc = TextureDefinition;
+    type Parsed = Cow<'static, str>;
 
     fn build(
         &self,
-        src: &TextureDefinition,
+        desc: &TextureDefinition,
         parsed: Self::Parsed,
-        _: &Fetch,
     ) -> Result<TextureInstance, AssetError> {
         let (width, height) = parsed.dimensions();
 
@@ -89,9 +91,14 @@ impl Loader<Texture, TextureDefinition> for TextureLoader {
     fn parse(
         &self,
         _: &TextureDefinition,
-        raw: <TextureDefinition as SourceFor<Texture>>::Raw,
-        _: &mut Deps,
+        bytes: Option<Bytes>,
     ) -> Result<Self::Parsed, AssetError> {
-        Ok(raw)
+        if let Some(b) = bytes {
+            return Ok(b.into());
+        }
+
+        Err(AssetError::InvalidArgument {
+            msg: "expected bytes",
+        })
     }
 }

@@ -1,24 +1,18 @@
-use std::{fs, num::NonZeroU64, path::PathBuf};
+use std::num::NonZeroU64;
 
-use crate::assets::{Asset, AssetError, Source, SourceId};
+use crate::assets::{Asset, AssetData, Descriptor};
 
 pub struct Shader;
 impl Asset for Shader {}
 
 pub struct ShaderDefinition {
     pub layout: BindGroupLayout,
-    pub source: PathBuf,
+    pub source: Option<AssetData>,
 }
 
-impl Source for ShaderDefinition {
-    type Output = Vec<u8>;
-
-    fn id(&self) -> SourceId {
-        todo!()
-    }
-
-    fn read(&self) -> Result<Self::Output, AssetError> {
-        fs::read(self.source.as_path()).map_err(|err| err.into())
+impl Descriptor for ShaderDefinition {
+    fn take_external(&mut self) -> Option<AssetData> {
+        self.source.take()
     }
 }
 

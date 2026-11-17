@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
+use bytes::Bytes;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    assets::{AssetError, BuiltAs, Deps, Fetch, Loader, SourceFor},
+    assets::{AssetError, BuiltAsset, Loader},
     renderer::{Mesh, MeshDefinition},
 };
 
-impl BuiltAs for Mesh {
+impl BuiltAsset for Mesh {
     type Built = MeshInstance;
 }
 
@@ -27,14 +28,14 @@ impl MeshLoader {
     }
 }
 
-impl Loader<Mesh, MeshDefinition> for MeshLoader {
-    type Parsed = <MeshDefinition as SourceFor<Mesh>>::Raw;
+impl Loader<Mesh> for MeshLoader {
+    type Desc = MeshDefinition;
+    type Parsed = ();
 
     fn build(
         &self,
         src: &MeshDefinition,
         _: Self::Parsed,
-        _: &Fetch,
     ) -> Result<MeshInstance, AssetError> {
         let vertex_buffer =
             self.device
@@ -62,8 +63,7 @@ impl Loader<Mesh, MeshDefinition> for MeshLoader {
     fn parse(
         &self,
         _: &MeshDefinition,
-        _: <MeshDefinition as SourceFor<Mesh>>::Raw,
-        _: &mut Deps,
+        _: Option<Bytes>,
     ) -> Result<Self::Parsed, AssetError> {
         Ok(())
     }

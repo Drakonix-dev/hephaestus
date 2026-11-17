@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 
-use crate::{asset_source, assets::Asset};
+use crate::assets::{Asset, Descriptor};
 
 pub struct Mesh;
 impl Asset for Mesh {}
@@ -10,7 +10,7 @@ pub struct MeshDefinition {
     pub vertices: Vec<Vertex>,
 }
 
-asset_source!(MeshDefinition, { todo!() });
+impl Descriptor for MeshDefinition {}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]

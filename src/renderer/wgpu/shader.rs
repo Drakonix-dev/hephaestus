@@ -1,13 +1,15 @@
 use std::{borrow::Cow, sync::Arc};
 
+use bytes::Bytes;
+
 use crate::{
-    assets::{AssetError, BuiltAs, Deps, Fetch, Loader, SourceFor},
+    assets::{AssetError, BuiltAsset, Loader},
     renderer::{
         BindGroupLayout, BindingType, Shader, ShaderDefinition, ShaderStage,
     },
 };
 
-impl BuiltAs for Shader {
+impl BuiltAsset for Shader {
     type Built = ShaderInstance;
 }
 
@@ -26,32 +28,24 @@ impl ShaderLoader {
     }
 }
 
-impl Loader<Shader, ShaderDefinition> for ShaderLoader {
-    type Parsed = <ShaderDefinition as SourceFor<Shader>>::Raw;
+impl Loader<Shader> for ShaderLoader {
+    type Desc = ShaderDefinition;
+    type Parsed = Cow<'static, str>;
 
     fn build(
         &self,
-        src: &ShaderDefinition,
+        desc: &ShaderDefinition,
         parsed: Self::Parsed,
-        _: &Fetch,
     ) -> Result<ShaderInstance, AssetError> {
-        let cow = String::from_utf8(parsed).map_err(|err| {
-            AssetError::OperationFailed {
-                source: Box::new(err),
-            }
-        })?;
-
         let module =
             self.device
                 .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some(
-                        src.source.to_str().unwrap_or("unknown_shader"),
-                    ),
-                    source: wgpu::ShaderSource::Wgsl(Cow::Owned(cow)),
+                    label: Some(todo!()),
+                    source: wgpu::ShaderSource::Wgsl(parsed),
                 });
 
         Ok(ShaderInstance {
-            layout: src.layout.to_wgpu(self.device.as_ref()),
+            layout: desc.layout.to_wgpu(self.device.as_ref()),
             module,
         })
     }
@@ -59,10 +53,15 @@ impl Loader<Shader, ShaderDefinition> for ShaderLoader {
     fn parse(
         &self,
         _: &ShaderDefinition,
-        raw: <ShaderDefinition as SourceFor<Shader>>::Raw,
-        _: &mut Deps,
+        bytes: Option<Bytes>,
     ) -> Result<Self::Parsed, AssetError> {
-        Ok(raw)
+        if let Some(b) = bytes {
+            return Ok(b.into());
+        }
+
+        Err(AssetError::InvalidArgument {
+            msg: "expected bytes",
+        })
     }
 }
 

@@ -1,8 +1,4 @@
-use std::path::PathBuf;
-
-use image::{ImageBuffer, ImageReader, Rgba};
-
-use crate::assets::{Asset, AssetError, Source, SourceId};
+use crate::assets::{Asset, AssetData, Descriptor};
 
 pub struct Texture;
 impl Asset for Texture {}
@@ -10,25 +6,31 @@ impl Asset for Texture {}
 pub struct TextureDefinition {
     pub depth: Option<u32>,
     pub dimension: TextureDimension,
-    pub source: PathBuf,
+    pub source: Option<AssetData>,
 }
 
-impl Source for TextureDefinition {
-    type Output = ImageBuffer<Rgba<u8>, Vec<u8>>;
-
-    fn id(&self) -> SourceId {
-        todo!()
-    }
-
-    fn read(&self) -> Result<Self::Output, AssetError> {
-        let image = ImageReader::open(self.source.as_path())?
-            .decode()
-            .map_err(|err| AssetError::OperationFailed {
-                source: Box::new(err),
-            })?;
-        Ok(image.to_rgba8())
+impl Descriptor for TextureDefinition {
+    fn take_external(&mut self) -> Option<AssetData> {
+        self.source.take()
     }
 }
+//
+// impl Source for TextureDefinition {
+//     type Output = ImageBuffer<Rgba<u8>, Vec<u8>>;
+//
+//     fn id(&self) -> SourceId {
+//         todo!()
+//     }
+//
+//     fn read(&self) -> Result<Self::Output, AssetError> {
+//         let image = ImageReader::open(self.source.as_path())?
+//             .decode()
+//             .map_err(|err| AssetError::OperationFailed {
+//                 source: Box::new(err),
+//             })?;
+//         Ok(image.to_rgba8())
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TextureDimension {

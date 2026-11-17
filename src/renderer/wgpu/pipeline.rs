@@ -1,7 +1,9 @@
-use std::sync::Arc;
+use std::{any::type_name, sync::Arc};
+
+use bytes::Bytes;
 
 use crate::{
-    assets::{AssetError, BuiltAsset, Handle, Loader, Source, SourceId},
+    assets::{AssetError, BuiltAsset, Descriptor, Handle, Loader},
     renderer::Shader,
 };
 
@@ -21,23 +23,12 @@ pub(crate) struct RenderState {
 pub(crate) struct PipelineDefinition {
     pub(crate) format: wgpu::TextureFormat,
     pub(crate) globals_layout: Arc<wgpu::BindGroupLayout>,
-    pub(crate) label: &'static str,
     pub(crate) model_layout: Arc<wgpu::BindGroupLayout>,
     pub(crate) render_state: RenderState,
     pub(crate) shader: Handle<Shader>,
 }
 
-impl Source for PipelineDefinition {
-    type Output = ();
-
-    fn id(&self) -> SourceId {
-        SourceId(self.label)
-    }
-
-    fn read(&self) -> Result<Self::Output, AssetError> {
-        Ok(())
-    }
-}
+impl Descriptor for PipelineDefinition {}
 
 pub(crate) struct PipelineLoader {
     device: Arc<wgpu::Device>,
@@ -50,16 +41,19 @@ impl PipelineLoader {
 }
 
 impl Loader<Pipeline> for PipelineLoader {
+    type Desc = PipelineDefinition;
     type Parsed = ();
-    type Raw = ();
 
     fn build(
         &self,
-        src: &PipelineDefinition,
+        desc: &PipelineDefinition,
         _: Self::Parsed,
         // fetch: &Fetch,
     ) -> Result<PipelineInstance, AssetError> {
-        Err(AssetError::UnhandledAsset { t: "", s: "" })
+        Err(AssetError::UnhandledAsset {
+            d: type_name::<PipelineDefinition>(),
+            t: type_name::<Pipeline>(),
+        })
         // let shader = fetch.get_handle(src.shader)?.required()?;
         // let pipeline_layout = self.device.create_pipeline_layout(
         //     &wgpu::PipelineLayoutDescriptor {
@@ -130,7 +124,8 @@ impl Loader<Pipeline> for PipelineLoader {
 
     fn parse(
         &self,
-        _: Self::Raw,
+        _: Self::Desc,
+        _: Option<Bytes>,
         // src: &PipelineDefinition,
         // _: <PipelineDefinition as SourceFor<Pipeline>>::Raw,
         // deps: &mut Deps,

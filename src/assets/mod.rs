@@ -46,6 +46,9 @@ pub enum AssetStatus {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AssetError {
+    #[error("invalid argument: {msg}")]
+    InvalidArgument { msg: &'static str },
+
     #[error("asset not found: {t}x{id}")]
     NotFound { id: usize, t: &'static str },
 
@@ -113,6 +116,21 @@ impl<T: Asset> Clone for Handle<T> {
 pub struct AssetPath {
     pub scheme: Cow<'static, str>,
     pub path: Cow<'static, str>,
+}
+
+impl From<&'static str> for AssetPath {
+    fn from(s: &'static str) -> Self {
+        match s.split_once("://") {
+            Some((scheme, path)) => Self {
+                scheme: scheme.into(),
+                path: path.into(),
+            },
+            None => Self {
+                scheme: "file".into(),
+                path: s.into(),
+            },
+        }
+    }
 }
 
 pub trait AssetReader {
