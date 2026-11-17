@@ -966,6 +966,7 @@ name = "hephaestus"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "bytes",
  "crossbeam-channel",
  "glam",
  "image",

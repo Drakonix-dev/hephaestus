@@ -11,6 +11,7 @@ categories = ["game-engines"]
 
 [dependencies]
 bytemuck = { version = "1.23.1", features = ["derive"] }
+bytes = "1.12.1"
 crossbeam-channel = "0.5.16"
 glam = { version = "0.33.2", features = ["bytemuck", "libm"] }
 image = "0.25.6"

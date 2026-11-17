@@ -3,9 +3,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     error::Error,
-    fs,
     marker::PhantomData,
-    str::Bytes,
     sync::{
         Arc,
         mpsc::{self, Receiver, Sender},
@@ -13,6 +11,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use bytes::Bytes;
 use crossbeam_channel::select_biased;
 
 use crate::config::EngineConfig;
@@ -61,6 +60,9 @@ pub enum AssetError {
 
     #[error("asset type unknown: {t}")]
     UnknownAsset { t: &'static str },
+
+    #[error("asset path scheme unknown: {s}")]
+    UnknownScheme { s: String },
 }
 
 impl AssetError {
@@ -117,15 +119,15 @@ pub trait AssetReader {
     fn read(&self, path: &str) -> Result<Bytes, AssetError>;
 }
 
-pub enum AssetData<'a> {
-    Inline(Bytes<'a>),
-    Path(&'a AssetPath),
+pub enum AssetData {
+    Inline(Bytes),
+    Path(AssetPath),
 }
 
 pub struct AssetKey(u64);
 
 pub trait Descriptor {
-    fn external(&self) -> Option<AssetData> {
+    fn take_external(&mut self) -> Option<AssetData> {
         None
     }
 
@@ -242,6 +244,7 @@ struct Registry {
     pool: Pool,
     qrx: Receiver<QueuedAsset>,
     qtx: Sender<QueuedAsset>,
+    readers: Readers,
     stores: HashMap<TypeId, Box<dyn ErasedStore>>,
 }
 
@@ -254,13 +257,14 @@ impl Registry {
             pool: Pool::new(cfg),
             qrx,
             qtx,
+            readers: Readers::new(),
             stores: HashMap::new(),
         }
     }
 
     fn load<A: Asset, D: Descriptor>(
         &mut self,
-        desc: D,
+        mut desc: D,
         priority: Priority,
     ) -> Result<Handle<A>, AssetError> {
         let asset_key = TypeId::of::<A>();
@@ -273,6 +277,8 @@ impl Registry {
                 t: type_name::<A>(),
             })?
             .clone();
+
+        // lookup descriptor by key first and return handle if exists
 
         let store = self
             .stores
@@ -298,7 +304,14 @@ impl Registry {
             });
         });
 
-        self.pool.load(desc, priority, loader, submit);
+        let route = Route::resolve(desc.take_external(), &self.readers)?;
+        let job = LoadJob {
+            desc: Box::new(desc),
+            loader,
+            submit,
+        };
+
+        self.pool.submit(route, job, priority);
 
         Ok(handle)
     }
@@ -318,9 +331,74 @@ impl Registry {
     }
 }
 
-type Job = Box<dyn FnOnce()>;
+type FetchFn = Box<dyn FnOnce() -> Result<Bytes, AssetError>>;
+
+enum Route {
+    Fetch(FetchFn),
+    Ready(Option<Bytes>),
+}
+
+impl Route {
+    fn resolve(
+        data: Option<AssetData>,
+        readers: &Readers,
+    ) -> Result<Self, AssetError> {
+        Ok(match data {
+            None => Route::Ready(None),
+            Some(AssetData::Inline(bytes)) => Route::Ready(Some(bytes)),
+            Some(AssetData::Path(path)) => {
+                let reader = readers.get(&path.scheme)?;
+                Route::Fetch(Box::new(move || reader.read(&path.path)))
+            }
+        })
+    }
+}
+
+struct Readers(HashMap<Cow<'static, str>, Arc<dyn AssetReader>>);
+
+impl Readers {
+    fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    fn get(&self, scheme: &str) -> Result<Arc<dyn AssetReader>, AssetError> {
+        self.0
+            .get(scheme)
+            .cloned()
+            .ok_or_else(|| AssetError::UnknownScheme {
+                s: scheme.to_owned(),
+            })
+    }
+
+    fn register(
+        &mut self,
+        scheme: impl Into<Cow<'static, str>>,
+        reader: impl AssetReader,
+    ) {
+        self.0.insert(scheme.into(), Arc::new(reader));
+    }
+}
 
 type SubmitFn = Box<dyn FnOnce(Result<BuildFn, AssetError>)>;
+
+struct LoadJob {
+    desc: Box<dyn Any>,
+    loader: Arc<dyn ErasedLoader>,
+    submit: SubmitFn,
+}
+
+impl LoadJob {
+    fn run(self, bytes: Result<Option<Bytes>, AssetError>) {
+        let LoadJob {
+            desc,
+            loader,
+            submit,
+        } = self;
+        submit(bytes.and_then(|b| loader.parse(desc, b)));
+    }
+}
+
+type Job = Box<dyn FnOnce()>;
 
 struct Pool {
     handles: Vec<JoinHandle<()>>,
@@ -358,35 +436,18 @@ impl Pool {
         }
     }
 
-    fn load<D: Descriptor>(
-        &self,
-        desc: D,
-        priority: Priority,
-        loader: Arc<dyn ErasedLoader>,
-        submit: SubmitFn,
-    ) {
+    fn submit(&self, route: Route, job: LoadJob, priority: Priority) {
         let ptx = self.p_txs[priority as usize].clone();
-        let external = desc.external();
 
-        let parse =
-            |bytes| submit(bytes.and_then(|b| loader.parse(Box::new(desc), b)));
-
-        match external {
-            None => {
-                let _ = ptx.send(Box::new(|| parse(Ok(None))));
-            }
-            Some(AssetData::Inline(b)) => {
-                let _ = ptx.send(Box::new(|| parse(Ok(Some(b)))));
-            }
-            Some(AssetData::Path(path)) => {
+        match route {
+            Route::Fetch(fetch) => {
                 let _ = self.io_tx.send(Box::new(|| {
-                    let bytes = fs::read(&path)
-                        .map(|b| Some(b.into()))
-                        .map_err(|e| AssetError::OperationFailed {
-                            source: Box::new(e),
-                        });
-                    let _ = ptx.send(Box::new(|| parse(bytes)));
+                    let bytes = fetch().map(Some);
+                    let _ = ptx.send(Box::new(|| job.run(bytes)));
                 }));
+            }
+            Route::Ready(bytes) => {
+                let _ = ptx.send(Box::new(|| job.run(Ok(bytes))));
             }
         }
     }
