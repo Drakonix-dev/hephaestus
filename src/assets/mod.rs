@@ -112,6 +112,8 @@ impl<T: Asset> Clone for Handle<T> {
     }
 }
 
+impl<T: Asset> Copy for Handle<T> {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AssetPath {
     pub scheme: Cow<'static, str>,
@@ -133,7 +135,7 @@ impl From<&'static str> for AssetPath {
     }
 }
 
-pub trait AssetReader {
+pub trait AssetReader: 'static {
     fn read(&self, path: &str) -> Result<Bytes, AssetError>;
 }
 
@@ -144,7 +146,7 @@ pub enum AssetData {
 
 pub struct AssetKey(u64);
 
-pub trait Descriptor {
+pub trait Descriptor: 'static {
     fn take_external(&mut self) -> Option<AssetData> {
         None
     }
@@ -163,7 +165,7 @@ type BuildFn =
 
 trait ErasedLoader {
     fn parse(
-        self: Self,
+        self: Arc<Self>,
         desc: Box<dyn Any>,
         bytes: Option<Bytes>,
     ) -> Result<BuildFn, AssetError>;
@@ -199,14 +201,14 @@ where
     L: Loader<A>,
 {
     fn parse(
-        self: Self,
+        self: Arc<Self>,
         desc: Box<dyn Any>,
         bytes: Option<Bytes>,
     ) -> Result<BuildFn, AssetError> {
-        let desc = desc.downcast::<Box<L::Desc>>().expect(INVARIANT);
+        let desc = desc.downcast::<L::Desc>().expect(INVARIANT);
         let parsed = self.0.parse(&desc, bytes)?;
 
-        Ok(Box::new(|handle, store| {
+        Ok(Box::new(move |handle, store| {
             let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
             let built = self.0.build(&desc, parsed)?;
 
@@ -306,27 +308,11 @@ impl Registry {
         let (id, generation) = store.insert_pending();
         let handle = Handle::new(id, generation);
 
-        let tx = self.qtx.clone();
-        let get_apply = Box::new(|result| {
-            Box::new(|| {
-                if let Ok(build) = result {
-                    build(&handle, store)
-                }
-            })
-        });
-        let submit = Box::new(|result| {
-            let _ = tx.send(QueuedAsset {
-                apply: get_apply(result),
-                type_id: TypeId::of::<A>(),
-                type_name: type_name::<A>(),
-            });
-        });
-
         let route = Route::resolve(desc.take_external(), &self.readers)?;
         let job = LoadJob {
             desc: Box::new(desc),
             loader,
-            submit,
+            submit: self.get_submit_fn(handle),
         };
 
         self.pool.submit(route, job, priority);
@@ -346,6 +332,25 @@ impl Registry {
         }
 
         Ok(())
+    }
+
+    // ------------------------------------------------------------------------
+
+    fn get_submit_fn<A: Asset>(&self, handle: Handle<A>) -> SubmitFn {
+        let tx = self.qtx.clone();
+
+        Box::new(move |result| {
+            let apply: ApplyFn = Box::new(move |store| match result {
+                Err(err) => Err(err),
+                Ok(build) => build(&handle, store),
+            });
+
+            let _ = tx.send(QueuedAsset {
+                apply,
+                type_id: TypeId::of::<A>(),
+                type_name: type_name::<A>(),
+            });
+        })
     }
 }
 
@@ -416,7 +421,7 @@ impl LoadJob {
     }
 }
 
-type Job = Box<dyn FnOnce()>;
+type Job = Box<dyn FnOnce() + Send>;
 
 struct Pool {
     handles: Vec<JoinHandle<()>>,
