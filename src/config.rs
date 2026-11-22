@@ -1,8 +1,11 @@
 use std::time;
 
-use crate::{diagnostics::DiagnosticsConfig, renderer::PresentMode};
+use crate::{
+    assets::AssetConfig, diagnostics::DiagnosticsConfig, renderer::PresentMode,
+};
 
 pub struct EngineConfig {
+    pub assets: AssetConfig,
     pub diagnostics: DiagnosticsConfig,
     pub io_threads: u8,
     pub present_mode: PresentMode,
@@ -14,6 +17,7 @@ pub struct EngineConfig {
 impl Default for EngineConfig {
     fn default() -> Self {
         Self {
+            assets: AssetConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
             io_threads: 4,
             present_mode: PresentMode::Vsync,

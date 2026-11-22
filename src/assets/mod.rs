@@ -2,19 +2,18 @@ use std::{
     any::{Any, TypeId, type_name},
     borrow::Cow,
     collections::HashMap,
+    env,
     error::Error,
+    fs,
     marker::PhantomData,
-    sync::{
-        Arc,
-        mpsc::{self, Receiver, Sender},
-    },
+    path::{Component, Path, PathBuf},
+    sync::Arc,
     thread::{self, JoinHandle},
 };
 
 use bytes::Bytes;
-use crossbeam_channel::select_biased;
+use crossbeam_channel::{Receiver, Sender, select_biased};
 
-use crate::config::EngineConfig;
 pub(crate) use private::*;
 
 pub(crate) mod private {
@@ -24,6 +23,26 @@ pub(crate) mod private {
 }
 
 const INVARIANT: &str = "asset type-erasure invariant violated";
+
+pub struct AssetConfig {
+    /// Root for the default `file://` reader. Relative paths resolve against
+    /// CARGO_MANIFEST_DIR in debug builds and the executable's dir in release.
+    pub root: PathBuf,
+    /// Threads that run blocking reads.
+    pub io_threads: u8,
+    /// Threads that run CPU-side parsing, `None` = available_parallelism - 1 (min 1).
+    pub parse_threads: Option<usize>,
+}
+
+impl Default for AssetConfig {
+    fn default() -> Self {
+        Self {
+            root: PathBuf::from("assets"),
+            io_threads: 4,
+            parse_threads: None,
+        }
+    }
+}
 
 pub trait Asset: private::BuiltAsset {}
 
@@ -271,17 +290,20 @@ struct Registry {
 }
 
 impl Registry {
-    fn new(cfg: &EngineConfig) -> Self {
-        let (qtx, qrx) = mpsc::channel();
+    fn new(cfg: &AssetConfig) -> Result<Self, AssetError> {
+        let (qtx, qrx) = crossbeam_channel::unbounded();
 
-        Self {
+        let mut readers = Readers::new();
+        readers.register("file", FileReader::new(&cfg.root)?);
+
+        Ok(Self {
             loaders: HashMap::new(),
             pool: Pool::new(cfg),
             qrx,
             qtx,
-            readers: Readers::new(),
+            readers,
             stores: HashMap::new(),
-        }
+        })
     }
 
     fn load<A: Asset, D: Descriptor>(
@@ -300,7 +322,7 @@ impl Registry {
             })?
             .clone();
 
-        // lookup descriptor by key first and return handle if exists
+        // TODO: lookup descriptor by key first and return handle if exists
 
         let store = self
             .stores
@@ -334,6 +356,27 @@ impl Registry {
         }
 
         Ok(())
+    }
+
+    // ------------------------------------------------------------------------
+
+    pub fn register_reader(
+        &mut self,
+        scheme: impl Into<Cow<'static, str>>,
+        reader: impl AssetReader,
+    ) {
+        self.readers.register(scheme, reader)
+    }
+
+    pub fn register_loader<A, D, L>(&mut self, loader: L)
+    where
+        A: Asset,
+        D: Descriptor,
+        L: Loader<A, Desc = D>,
+    {
+        self.loaders
+            .entry((TypeId::of::<A>(), TypeId::of::<D>()))
+            .or_insert_with(|| Arc::new(LoaderCell::<A, L>::new(loader)));
     }
 
     // ------------------------------------------------------------------------
@@ -427,13 +470,13 @@ type Job = Box<dyn FnOnce() + Send>;
 
 struct Pool {
     // ORDER MATTERS: the senders must drop before workers joins.
-    io_tx: crossbeam_channel::Sender<Job>,
-    p_txs: [crossbeam_channel::Sender<Job>; TOTAL_PRIORITIES],
+    io_tx: Sender<Job>,
+    p_txs: [Sender<Job>; TOTAL_PRIORITIES],
     workers: Workers,
 }
 
 impl Pool {
-    fn new(cfg: &EngineConfig) -> Self {
+    fn new(cfg: &AssetConfig) -> Self {
         let mut handles = Vec::new();
 
         let (io_tx, io_rx) = crossbeam_channel::unbounded();
@@ -446,9 +489,11 @@ impl Pool {
         let (ps_tx, ps_rx) = crossbeam_channel::unbounded();
         let p_txs = [pc_tx, pi_tx, ps_tx];
 
-        let num_threads = thread::available_parallelism()
-            .map(|n| n.get().saturating_sub(1).max(1))
-            .unwrap_or(1);
+        let num_threads = cfg.parse_threads.unwrap_or_else(|| {
+            thread::available_parallelism()
+                .map(|n| n.get().saturating_sub(1).max(1))
+                .unwrap_or(1)
+        });
 
         for _ in 0..num_threads {
             let p_rxs = [pc_rx.clone(), pi_rx.clone(), ps_rx.clone()];
@@ -480,7 +525,7 @@ impl Pool {
 
     // ------------------------------------------------------------------------
 
-    fn spawn_io_worker(rx: crossbeam_channel::Receiver<Job>) -> JoinHandle<()> {
+    fn spawn_io_worker(rx: Receiver<Job>) -> JoinHandle<()> {
         thread::spawn(move || {
             while let Ok(job) = rx.recv() {
                 (job)()
@@ -489,7 +534,7 @@ impl Pool {
     }
 
     fn spawn_parse_worker(
-        rxs: [crossbeam_channel::Receiver<Job>; TOTAL_PRIORITIES],
+        rxs: [Receiver<Job>; TOTAL_PRIORITIES],
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             loop {
@@ -585,4 +630,57 @@ impl<A: Asset> ErasedStore for Store<A> {
         let handle = self.insert(SlotState::Pending);
         (handle.id, handle.generation)
     }
+}
+
+struct FileReader {
+    root: PathBuf,
+}
+
+impl FileReader {
+    pub fn new(root: impl AsRef<Path>) -> Result<Self, AssetError> {
+        let root = resolve_root(root.as_ref());
+        let root =
+            root.canonicalize()
+                .map_err(|e| AssetError::OperationFailed {
+                    source: format!("asset root {}: {e}", root.display())
+                        .into(),
+                })?;
+
+        Ok(Self { root })
+    }
+}
+
+impl AssetReader for FileReader {
+    fn read(&self, path: &str) -> Result<Bytes, AssetError> {
+        let rel = Path::new(path);
+        if !rel
+            .components()
+            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+        {
+            return Err(AssetError::InvalidArgument {
+                msg: "asset path must be relative and stay instide the asset root",
+            });
+        }
+
+        fs::read(self.root.join(rel)).map(Bytes::from).map_err(|e| {
+            AssetError::OperationFailed {
+                source: format!("{path}: {e}").into(),
+            }
+        })
+    }
+}
+
+fn resolve_root(root: &Path) -> PathBuf {
+    if root.is_absolute() {
+        return root.to_path_buf();
+    }
+
+    if let Some(dir) = option_env!("CARGO_MANIFEST_DIR") {
+        return Path::new(dir).join(root);
+    }
+
+    env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join(root)))
+        .unwrap_or_else(|| root.to_path_buf())
 }

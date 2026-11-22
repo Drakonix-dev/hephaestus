@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use image::{ImageBuffer, ImageReader, Rgba};
 
 use crate::{
     assets::{AssetError, BuiltAsset, Loader},
@@ -31,7 +32,7 @@ impl TextureLoader {
 
 impl Loader<Texture> for TextureLoader {
     type Desc = TextureDefinition;
-    type Parsed = Cow<'static, str>;
+    type Parsed = ImageBuffer<Rgba<u8>, Vec<u8>>;
 
     fn build(
         &self,
@@ -40,7 +41,7 @@ impl Loader<Texture> for TextureLoader {
     ) -> Result<TextureInstance, AssetError> {
         let (width, height) = parsed.dimensions();
 
-        let (dimension, depth_or_layers) = match src.dimension {
+        let (dimension, depth_or_layers) = match desc.dimension {
             TextureDimension::D1 => (wgpu::TextureDimension::D1, 1),
             TextureDimension::D2 => (wgpu::TextureDimension::D2, 1),
             TextureDimension::D3 => (
@@ -93,12 +94,13 @@ impl Loader<Texture> for TextureLoader {
         _: &TextureDefinition,
         bytes: Option<Bytes>,
     ) -> Result<Self::Parsed, AssetError> {
-        if let Some(b) = bytes {
-            return Ok(b.into());
+        match bytes {
+            Some(bytes) => {
+                let image = ImageReader::from(bytes).decode();
+            }
+            None => Err(AssetError::InvalidArgument {
+                msg: "expected bytes",
+            }),
         }
-
-        Err(AssetError::InvalidArgument {
-            msg: "expected bytes",
-        })
     }
 }
