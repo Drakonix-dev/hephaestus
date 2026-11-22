@@ -1,10 +1,11 @@
 use std::{
     any::{Any, TypeId, type_name},
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
     env,
     error::Error,
     fs,
+    hash::{Hash, Hasher},
     marker::PhantomData,
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -96,15 +97,17 @@ impl AssetError {
     }
 }
 
+#[non_exhaustive]
 pub enum Priority {
     Critical,
     Idle,
     Streaming,
 }
 
-const TOTAL_PRIORITIES: usize = Priority::Streaming as usize + 1;
+impl Priority {
+    const PRIORITY_COUNT: usize = 3;
+}
 
-#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Handle<T: Asset> {
     pub(crate) generation: u64,
     pub(crate) id: usize,
@@ -132,6 +135,21 @@ impl<T: Asset> Clone for Handle<T> {
 }
 
 impl<T: Asset> Copy for Handle<T> {}
+
+impl<T: Asset> Eq for Handle<T> {}
+
+impl<T: Asset> Hash for Handle<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.generation.hash(state);
+        self.id.hash(state);
+    }
+}
+
+impl<T: Asset> PartialEq for Handle<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == self.id && self.generation == other.generation
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AssetPath {
@@ -368,15 +386,25 @@ impl Registry {
         self.readers.register(scheme, reader)
     }
 
-    pub fn register_loader<A, D, L>(&mut self, loader: L)
+    pub fn register_loader<A, D, L>(
+        &mut self,
+        loader: L,
+    ) -> Result<(), AssetError>
     where
         A: Asset,
         D: Descriptor,
         L: Loader<A, Desc = D>,
     {
-        self.loaders
-            .entry((TypeId::of::<A>(), TypeId::of::<D>()))
-            .or_insert_with(|| Arc::new(LoaderCell::<A, L>::new(loader)));
+        let entry = self.loaders.entry((TypeId::of::<A>(), TypeId::of::<D>()));
+        match entry {
+            Entry::Occupied(mut e) => {
+                e.insert(Arc::new(LoaderCell::new(loader)));
+                Ok(())
+            }
+            Entry::Vacant(_) => Err(AssetError::OperationFailed {
+                source: format!("duplicate loader").into(),
+            }),
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -471,7 +499,7 @@ type Job = Box<dyn FnOnce() + Send>;
 struct Pool {
     // ORDER MATTERS: the senders must drop before workers joins.
     io_tx: Sender<Job>,
-    p_txs: [Sender<Job>; TOTAL_PRIORITIES],
+    p_txs: [Sender<Job>; Priority::PRIORITY_COUNT],
     workers: Workers,
 }
 
@@ -534,7 +562,7 @@ impl Pool {
     }
 
     fn spawn_parse_worker(
-        rxs: [Receiver<Job>; TOTAL_PRIORITIES],
+        rxs: [Receiver<Job>; Priority::PRIORITY_COUNT],
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             loop {
