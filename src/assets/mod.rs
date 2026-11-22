@@ -135,7 +135,7 @@ impl From<&'static str> for AssetPath {
     }
 }
 
-pub trait AssetReader: 'static {
+pub trait AssetReader: Send + Sync + 'static {
     fn read(&self, path: &str) -> Result<Bytes, AssetError>;
 }
 
@@ -146,7 +146,7 @@ pub enum AssetData {
 
 pub struct AssetKey(u64);
 
-pub trait Descriptor: 'static {
+pub trait Descriptor: Send + 'static {
     fn take_external(&mut self) -> Option<AssetData> {
         None
     }
@@ -160,20 +160,21 @@ pub trait Descriptor: 'static {
     }
 }
 
-type BuildFn =
-    Box<dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError>>;
+type BuildFn = Box<
+    dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError> + Send,
+>;
 
-trait ErasedLoader {
+trait ErasedLoader: Send + Sync + 'static {
     fn parse(
         self: Arc<Self>,
-        desc: Box<dyn Any>,
+        desc: Box<dyn Any + Send>,
         bytes: Option<Bytes>,
     ) -> Result<BuildFn, AssetError>;
 }
 
-pub trait Loader<A: Asset>: 'static {
+pub trait Loader<A: Asset>: Send + Sync + 'static {
     type Desc: Descriptor;
-    type Parsed: 'static;
+    type Parsed: Send + 'static;
 
     fn build(
         &self,
@@ -202,7 +203,7 @@ where
 {
     fn parse(
         self: Arc<Self>,
-        desc: Box<dyn Any>,
+        desc: Box<dyn Any + Send>,
         bytes: Option<Bytes>,
     ) -> Result<BuildFn, AssetError> {
         let desc = desc.downcast::<L::Desc>().expect(INVARIANT);
@@ -251,7 +252,8 @@ impl<T> From<&SlotState<T>> for AssetStatus {
     }
 }
 
-type ApplyFn = Box<dyn FnOnce(&mut dyn ErasedStore) -> Result<(), AssetError>>;
+type ApplyFn =
+    Box<dyn FnOnce(&mut dyn ErasedStore) -> Result<(), AssetError> + Send>;
 
 struct QueuedAsset {
     apply: ApplyFn,
@@ -354,7 +356,7 @@ impl Registry {
     }
 }
 
-type FetchFn = Box<dyn FnOnce() -> Result<Bytes, AssetError>>;
+type FetchFn = Box<dyn FnOnce() -> Result<Bytes, AssetError> + Send>;
 
 enum Route {
     Fetch(FetchFn),
@@ -402,10 +404,10 @@ impl Readers {
     }
 }
 
-type SubmitFn = Box<dyn FnOnce(Result<BuildFn, AssetError>)>;
+type SubmitFn = Box<dyn FnOnce(Result<BuildFn, AssetError>) + Send>;
 
 struct LoadJob {
-    desc: Box<dyn Any>,
+    desc: Box<dyn Any + Send>,
     loader: Arc<dyn ErasedLoader>,
     submit: SubmitFn,
 }
@@ -424,9 +426,10 @@ impl LoadJob {
 type Job = Box<dyn FnOnce() + Send>;
 
 struct Pool {
-    handles: Vec<JoinHandle<()>>,
+    // ORDER MATTERS: the senders must drop before workers joins.
     io_tx: crossbeam_channel::Sender<Job>,
     p_txs: [crossbeam_channel::Sender<Job>; TOTAL_PRIORITIES],
+    workers: Workers,
 }
 
 impl Pool {
@@ -453,9 +456,9 @@ impl Pool {
         }
 
         Self {
-            handles,
             io_tx,
             p_txs,
+            workers: Workers(handles),
         }
     }
 
@@ -464,7 +467,7 @@ impl Pool {
 
         match route {
             Route::Fetch(fetch) => {
-                let _ = self.io_tx.send(Box::new(|| {
+                let _ = self.io_tx.send(Box::new(move || {
                     let bytes = fetch().map(Some);
                     let _ = ptx.send(Box::new(|| job.run(bytes)));
                 }));
@@ -478,7 +481,7 @@ impl Pool {
     // ------------------------------------------------------------------------
 
     fn spawn_io_worker(rx: crossbeam_channel::Receiver<Job>) -> JoinHandle<()> {
-        thread::spawn(|| {
+        thread::spawn(move || {
             while let Ok(job) = rx.recv() {
                 (job)()
             }
@@ -488,7 +491,7 @@ impl Pool {
     fn spawn_parse_worker(
         rxs: [crossbeam_channel::Receiver<Job>; TOTAL_PRIORITIES],
     ) -> JoinHandle<()> {
-        thread::spawn(|| {
+        thread::spawn(move || {
             loop {
                 select_biased!(
                     recv(rxs[Priority::Critical as usize]) -> job => match job {
@@ -509,13 +512,12 @@ impl Pool {
     }
 }
 
-impl Drop for Pool {
-    fn drop(&mut self) {
-        drop(self.io_tx);
-        drop(self.p_txs);
+struct Workers(Vec<JoinHandle<()>>);
 
-        for h in self.handles {
-            h.join().unwrap();
+impl Drop for Workers {
+    fn drop(&mut self) {
+        for h in self.0.drain(..) {
+            let _ = h.join();
         }
     }
 }
