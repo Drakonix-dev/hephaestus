@@ -7,6 +7,7 @@ use std::{
     error::Error,
     fs,
     hash::{Hash, Hasher},
+    io,
     marker::PhantomData,
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -149,7 +150,7 @@ impl<T: Asset> Hash for Handle<T> {
 
 impl<T: Asset> PartialEq for Handle<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.id == self.id && self.generation == other.generation
+        self.id == other.id && self.generation == other.generation
     }
 }
 
@@ -157,6 +158,12 @@ impl<T: Asset> PartialEq for Handle<T> {
 pub struct AssetPath {
     pub scheme: Cow<'static, str>,
     pub path: Cow<'static, str>,
+}
+
+impl fmt::Display for AssetPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}://{}", self.scheme, self.path)
+    }
 }
 
 impl From<&'static str> for AssetPath {
@@ -175,7 +182,7 @@ impl From<&'static str> for AssetPath {
 }
 
 pub trait AssetReader: Send + Sync + 'static {
-    fn read(&self, path: &str) -> Result<Bytes, AssetError>;
+    fn read(&self, path: &str) -> io::Result<Bytes>;
 }
 
 pub enum AssetData {
@@ -221,12 +228,12 @@ pub trait Loader<A: Asset>: Send + Sync + 'static {
         &self,
         desc: &Self::Desc,
         parsed: Self::Parsed,
-    ) -> Result<A::Built, AssetError>;
+    ) -> Result<A::Built, Self::Error>;
     fn parse(
         &self,
         desc: &Self::Desc,
         bytes: Option<Bytes>,
-    ) -> Result<Self::Parsed, AssetError>;
+    ) -> Result<Self::Parsed, Self::Error>;
 }
 
 struct LoaderCell<A, L>(L, PhantomData<fn() -> A>);
@@ -250,14 +257,21 @@ where
     ) -> Result<BuildFn, AssetError> {
         let desc = desc.downcast::<L::Desc>().expect(INVARIANT);
         let parsed =
-            self.0.parse(&desc, bytes).map_err(|e| AssetError::Parse {
-                asset: label.clone(),
-                source: Box::new(e),
-            })?;
+            self.0
+                .parse(&desc, bytes)
+                .map_err(|source| AssetError::Parse {
+                    asset: label.clone(),
+                    source: Box::new(source),
+                })?;
 
         Ok(Box::new(move |handle, store| {
             let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
-            let built = self.0.build(&desc, parsed)?;
+            let built = self.0.build(&desc, parsed).map_err(|source| {
+                AssetError::Build {
+                    asset: label,
+                    source: Box::new(source),
+                }
+            })?;
 
             store
                 .as_any_mut()
@@ -318,7 +332,7 @@ struct Registry {
 }
 
 impl Registry {
-    fn new(cfg: &AssetConfig) -> Result<Self, AssetError> {
+    fn new(cfg: &AssetConfig) -> Result<Self, InitError> {
         let (qtx, qrx) = crossbeam_channel::unbounded();
 
         let mut readers = Readers::new();
@@ -356,17 +370,19 @@ impl Registry {
             .stores
             .entry(asset_key)
             .or_insert_with(|| Box::new(Store::<A>::new()));
+
+        let label = desc.label();
         let route = Route::resolve(desc.take_external(), &self.readers)?;
 
         let (id, generation) = store.insert_pending();
         let handle = Handle::new(id, generation);
-        let label = desc.label().unwrap_or_else(|| {
+        let label = label.unwrap_or_else(|| {
             AssetLabel::from(format!("{}#{}", type_name::<A>(), id))
         });
 
         let job = LoadJob {
             desc: Box::new(desc),
-            label: label.clone(),
+            label,
             loader,
             submit: self.get_submit_fn(handle),
         };
@@ -401,7 +417,11 @@ impl Registry {
     {
         let entry = self.loaders.entry((TypeId::of::<A>(), TypeId::of::<D>()));
         match entry {
-            Entry::Occupied(_) => panic!("duplicate loader registration"),
+            Entry::Occupied(_) => panic!(
+                "duplicate loader for asset {} and descriptor {}",
+                type_name::<A>(),
+                type_name::<D>()
+            ),
             Entry::Vacant(e) => {
                 let _ = e.insert(Arc::new(LoaderCell::new(loader)));
             }
@@ -460,7 +480,23 @@ impl Route {
                         scheme: path.scheme.clone().into(),
                     },
                 )?;
-                Route::Fetch(Box::new(move || reader.read(&path.path)))
+
+                if path.scheme == "file" {
+                    let rel = Path::new(path.path.as_ref());
+                    if !rel.components().all(|c| {
+                        matches!(c, Component::Normal(_) | Component::CurDir)
+                    }) {
+                        return Err(LoadError::PathOutsideRoot {
+                            path: rel.to_path_buf(),
+                        });
+                    }
+                }
+
+                Route::Fetch(Box::new(move || {
+                    reader
+                        .read(&path.path)
+                        .map_err(|source| AssetError::Read { path, source })
+                }))
             }
         })
     }
@@ -641,7 +677,8 @@ impl<A: Asset> Store<A> {
 
     fn insert(&mut self, state: SlotState<A::Built>) -> Handle<A> {
         if let Some(id) = self.free.pop() {
-            Handle::new(id, self.items[id].generation)
+            self.items[id].state = state;
+            Handle::new(id, self.items[id].generation + 1)
         } else {
             self.items.push(Slot::new(state));
             Handle::new(self.items.len() - 1, 0)
@@ -671,33 +708,20 @@ struct FileReader {
 }
 
 impl FileReader {
-    pub fn new(root: impl AsRef<Path>) -> Result<Self, AssetError> {
+    pub fn new(root: impl AsRef<Path>) -> Result<Self, InitError> {
         let root = resolve_root(root.as_ref());
-        let root = root.canonicalize().map_err(|e| AssetError::Io {
-            path: root,
-            source: e,
-        })?;
+        let root = root
+            .canonicalize()
+            .map_err(|source| InitError::Root { path: root, source })?;
 
         Ok(Self { root })
     }
 }
 
 impl AssetReader for FileReader {
-    fn read(&self, path: &str) -> Result<Bytes, AssetError> {
-        let rel = Path::new(path);
-        if !rel
-            .components()
-            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
-        {
-            return Err(AssetError::PathOutsideRoot { path: path.into() });
-        }
-
-        fs::read(self.root.join(rel)).map(Bytes::from).map_err(|e| {
-            AssetError::Io {
-                path: self.root.join(rel),
-                source: e,
-            }
-        })
+    fn read(&self, path: &str) -> io::Result<Bytes> {
+        let path = self.root.join(Path::new(path));
+        fs::read(path).map(Bytes::from)
     }
 }
 

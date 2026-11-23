@@ -1,6 +1,6 @@
 use std::{error::Error, io, path::PathBuf, sync::Arc};
 
-use crate::assets::AssetLabel;
+use crate::assets::{AssetLabel, AssetPath};
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -18,16 +18,9 @@ pub enum AssetError {
     #[error("{asset} depends on {dependency}, which failed")]
     DependencyFailed {
         asset: AssetLabel,
-        dependency: &'static str,
+        dependency: AssetLabel,
         #[source]
         source: Arc<AssetError>,
-    },
-
-    #[error("failed to read `{path}`")]
-    Io {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
     },
 
     #[error("failed to parse {asset}")]
@@ -37,8 +30,12 @@ pub enum AssetError {
         source: Box<dyn Error + Send + Sync>,
     },
 
-    #[error("`{path}` escapes the asset root")]
-    PathOutsideRoot { path: PathBuf },
+    #[error("failed to read `{path}`")]
+    Read {
+        path: AssetPath,
+        #[source]
+        source: io::Error,
+    },
 
     #[error("superseded by a newer load")]
     Superseded,
@@ -46,7 +43,21 @@ pub enum AssetError {
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
+pub enum InitError {
+    #[error("asset root `{}` is not accessible", path.display())]
+    Root {
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum LoadError {
+    #[error("`{path}` escapes the asset root")]
+    PathOutsideRoot { path: PathBuf },
+
     #[error("no loader registered for {asset} from {desc}")]
     UnhandledAsset {
         asset: &'static str,
