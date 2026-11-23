@@ -9,6 +9,7 @@ use std::{
     hash::{Hash, Hasher},
     io,
     marker::PhantomData,
+    panic::{self, AssertUnwindSafe},
     path::{Component, Path, PathBuf},
     sync::Arc,
     thread::{self, JoinHandle},
@@ -129,11 +130,7 @@ impl<T: Asset> Handle<T> {
 
 impl<T: Asset> Clone for Handle<T> {
     fn clone(&self) -> Self {
-        Self {
-            generation: self.generation.clone(),
-            id: self.id.clone(),
-            _marker: PhantomData,
-        }
+        *self
     }
 }
 
@@ -394,7 +391,10 @@ impl Registry {
 
     fn process_queued_assets(&mut self) {
         while let Ok(queued) = self.qrx.try_recv() {
-            let store = self.stores.get_mut(&queued.type_id).expect(INVARIANT);
+            let store =
+                self.stores.get_mut(&queued.type_id).unwrap_or_else(|| {
+                    panic!("no store for {}: {INVARIANT}", queued.type_name)
+                });
             (queued.apply)(store.as_mut())
         }
     }
@@ -446,7 +446,7 @@ impl Registry {
                     Err(err) => SlotState::Failed(Arc::new(err)),
                 };
 
-                let _ = store.update(handle, state);
+                store.update(handle, state)
             });
 
             let _ = tx.send(QueuedAsset {
@@ -481,6 +481,7 @@ impl Route {
                     },
                 )?;
 
+                // TODO: actually add security maybe instead of just checking path string
                 if path.scheme == "file" {
                     let rel = Path::new(path.path.as_ref());
                     if !rel.components().all(|c| {
@@ -539,7 +540,23 @@ impl LoadJob {
             loader,
             submit,
         } = self;
-        submit(bytes.and_then(|b| loader.parse(desc, label, b)));
+
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            bytes.and_then(|b| loader.parse(desc, label.clone(), b))
+        }))
+        .unwrap_or_else(|payload| {
+            let message = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "non-string panic".into());
+            Err(AssetError::Panicked {
+                asset: label,
+                message,
+            })
+        });
+
+        submit(result);
     }
 }
 
@@ -590,8 +607,23 @@ impl Pool {
         match route {
             Route::Fetch(fetch) => {
                 let _ = self.io_tx.send(Box::new(move || {
-                    let bytes = fetch().map(Some);
-                    let _ = ptx.send(Box::new(|| job.run(bytes)));
+                    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                        fetch().map(Some)
+                    }))
+                    .unwrap_or_else(|payload| {
+                        let message = payload
+                            .downcast_ref::<&str>()
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                payload.downcast_ref::<String>().cloned()
+                            })
+                            .unwrap_or_else(|| "non-string panic".into());
+                        Err(AssetError::Panicked {
+                            asset: job.label.clone(),
+                            message,
+                        })
+                    });
+                    let _ = ptx.send(Box::new(|| job.run(result)));
                 }));
             }
             Route::Ready(bytes) => {
@@ -677,8 +709,9 @@ impl<A: Asset> Store<A> {
 
     fn insert(&mut self, state: SlotState<A::Built>) -> Handle<A> {
         if let Some(id) = self.free.pop() {
-            self.items[id].state = state;
-            Handle::new(id, self.items[id].generation + 1)
+            let slot = &mut self.items[id];
+            slot.state = state;
+            Handle::new(id, slot.generation)
         } else {
             self.items.push(Slot::new(state));
             Handle::new(self.items.len() - 1, 0)
@@ -686,7 +719,7 @@ impl<A: Asset> Store<A> {
     }
 
     fn update(&mut self, handle: Handle<A>, state: SlotState<A::Built>) {
-        if let Some(_) = self.get(&handle) {
+        if self.get(&handle).is_some() {
             self.items[handle.id].state = state;
         }
     }

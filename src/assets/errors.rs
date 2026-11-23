@@ -23,6 +23,9 @@ pub enum AssetError {
         source: Arc<AssetError>,
     },
 
+    #[error("{asset}: loader panicked: {message}")]
+    Panicked { asset: AssetLabel, message: String },
+
     #[error("failed to parse {asset}")]
     Parse {
         asset: AssetLabel,
