@@ -24,7 +24,7 @@ pub struct Registry {
 }
 
 impl Registry {
-    fn new(cfg: &AssetConfig) -> Result<Self, InitError> {
+    pub(crate) fn new(cfg: &AssetConfig) -> Result<Self, InitError> {
         let (qtx, qrx) = crossbeam_channel::unbounded();
 
         let mut readers = Readers::new();
@@ -40,7 +40,7 @@ impl Registry {
         })
     }
 
-    fn load<A: Asset, D: Descriptor>(
+    pub fn load<A: Asset, D: Descriptor>(
         &mut self,
         mut desc: D,
         priority: Priority,
@@ -55,8 +55,6 @@ impl Registry {
                 desc: type_name::<D>(),
             })?
             .clone();
-
-        // TODO: lookup descriptor by key first and return handle if exists
 
         let store = self
             .stores
@@ -84,7 +82,7 @@ impl Registry {
         Ok(handle)
     }
 
-    fn process_queued_assets(&mut self) {
+    pub(crate) fn process_queued_assets(&mut self) {
         while let Ok(queued) = self.qrx.try_recv() {
             let store =
                 self.stores.get_mut(&queued.type_id).unwrap_or_else(|| {

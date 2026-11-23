@@ -10,7 +10,7 @@ use winit::{
 
 use crate::{
     Application, ApplicationContext, ApplicationInstance, EngineError,
-    assets::AssetManager,
+    assets::Registry as AssetRegistry,
     commands::{
         EngineCommand, EngineCommandReader, EngineCommandWriter,
         engine_command_channel,
@@ -58,7 +58,7 @@ struct AppState<A: Application> {
 
 struct AppHandler<I: ApplicationInstance> {
     accumulator: time::Duration,
-    assets: AssetManager,
+    assets: AssetRegistry,
     cfg: RuntimeConfig,
     instance: I,
     last_frame: time::Instant,
@@ -101,7 +101,7 @@ impl<A: Application> AppState<A> {
         let (writer, reader) = render_queue_channel();
         let mut renderer_handle = RendererHandle::new(writer);
 
-        let mut assets = AssetManager::new(&self.cfg);
+        let mut assets = AssetRegistry::new(&self.cfg.assets)?;
         let backend = pollster::block_on(WgpuRenderer::new(
             &self.cfg,
             window,
@@ -171,10 +171,8 @@ impl<A: Application> AppState<A> {
                 / handler.cfg.tick_freq.as_secs_f32()
         };
 
-        handler
-            .assets
-            .process_queued_assets(&mut self.events)
-            .expect("Failed to process queued assets");
+        // handler.assets.process_queued_assets(&mut self.events);
+        handler.assets.process_queued_assets();
 
         let prepared = match handler
             .renderer

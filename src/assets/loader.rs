@@ -120,14 +120,8 @@ pub enum AssetData {
     Path(AssetPath),
 }
 
-pub struct AssetKey(u64);
-
 pub trait Descriptor: Send + 'static {
     fn take_external(&mut self) -> Option<AssetData> {
-        None
-    }
-
-    fn key(&self) -> Option<AssetKey> {
         None
     }
 

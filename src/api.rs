@@ -1,7 +1,7 @@
 use std::time;
 
 use crate::{
-    assets::AssetManager,
+    assets::{InitError, Registry},
     commands::{EngineCommand, EngineCommandWriter},
     config::RuntimeConfig,
     events::EventBus,
@@ -33,7 +33,7 @@ pub trait ApplicationInstance {
 }
 
 pub struct ApplicationContext<'a> {
-    pub assets: &'a mut AssetManager,
+    pub assets: &'a mut Registry,
     pub(crate) commands: &'a EngineCommandWriter,
     pub config: &'a RuntimeConfig,
     pub events: &'a mut EventBus,
@@ -50,6 +50,9 @@ impl<'a> ApplicationContext<'a> {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EngineError {
+    #[error(transparent)]
+    Init(#[from] InitError),
+
     #[error(transparent)]
     Platform(#[from] PlatformError),
 
