@@ -74,12 +74,12 @@ impl<A: Asset> Store<A> {
     }
 
     fn get(&self, handle: &Handle<A>) -> Option<&SlotState<A::Built>> {
-        if handle.id >= self.items.len() {
+        if handle.0.id >= self.items.len() {
             return None;
         }
 
-        let slot = &self.items[handle.id];
-        if slot.generation != handle.generation {
+        let slot = &self.items[handle.0.id];
+        if slot.generation != handle.0.generation {
             return None;
         }
 
@@ -90,10 +90,10 @@ impl<A: Asset> Store<A> {
         if let Some(id) = self.free.pop() {
             let slot = &mut self.items[id];
             slot.state = state;
-            Handle::new(id, slot.generation)
+            Handle(Token::new(id, slot.generation))
         } else {
             self.items.push(Slot::new(state));
-            Handle::new(self.items.len() - 1, 0)
+            Handle(Token::new(self.items.len() - 1, 0))
         }
     }
 
@@ -103,7 +103,7 @@ impl<A: Asset> Store<A> {
         state: SlotState<A::Built>,
     ) {
         if self.get(&handle).is_some() {
-            self.items[handle.id].state = state;
+            self.items[handle.0.id].state = state;
         }
     }
 }
@@ -115,7 +115,7 @@ impl<A: Asset> ErasedStore for Store<A> {
 
     fn insert_pending(&mut self) -> (usize, u64) {
         let handle = self.insert(SlotState::Pending);
-        (handle.id, handle.generation)
+        (handle.0.id, handle.0.generation)
     }
 }
 
@@ -149,40 +149,35 @@ impl<T> From<&SlotState<T>> for AssetStatus {
     }
 }
 
-pub struct Handle<T: Asset> {
+pub struct Handle<T: Asset>(pub(super) Token<T>);
+pub struct OwnedHandle<T: Asset>(pub(super) Arc<Token<T>>);
+
+struct Token<T: Asset> {
     generation: u64,
     id: usize,
     _marker: PhantomData<fn() -> T>,
 }
 
-impl<T: Asset> Handle<T> {
-    pub(super) fn new(id: usize, generation: u64) -> Self {
+impl<T: Asset> Token<T> {
+    fn new(id: usize, generation: u64) -> Self {
         Self {
-            generation,
             id,
+            generation,
             _marker: PhantomData,
         }
     }
 }
 
-impl<T: Asset> Clone for Handle<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
+impl<T: Asset> Eq for Token<T> {}
 
-impl<T: Asset> Copy for Handle<T> {}
-
-impl<T: Asset> Eq for Handle<T> {}
-
-impl<T: Asset> Hash for Handle<T> {
+impl<T: Asset> Hash for Token<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.generation.hash(state);
         self.id.hash(state);
     }
 }
 
-impl<T: Asset> PartialEq for Handle<T> {
+impl<T: Asset> PartialEq for Token<T> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id && self.generation == other.generation
     }

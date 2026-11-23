@@ -67,7 +67,12 @@ impl Registry {
         let (id, generation) = store.insert_pending();
         let handle = Handle::new(id, generation);
         let label = label.unwrap_or_else(|| {
-            AssetLabel::from(format!("{}#{}", type_name::<A>(), id))
+            AssetLabel::from(format!(
+                "{}#{}.{}",
+                type_name::<A>(),
+                id,
+                generation
+            ))
         });
 
         let job = LoadJob {
@@ -108,6 +113,11 @@ impl Registry {
         D: Descriptor,
         L: Loader<A, Desc = D>,
     {
+        let _ = self
+            .stores
+            .entry(TypeId::of::<A>())
+            .or_insert_with(|| Box::new(Store::<A>::new()));
+
         let entry = self.loaders.entry((TypeId::of::<A>(), TypeId::of::<D>()));
         match entry {
             Entry::Occupied(_) => panic!(
