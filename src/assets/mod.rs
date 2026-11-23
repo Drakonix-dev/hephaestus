@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     any::{Any, TypeId, type_name},
     borrow::Cow,
@@ -15,13 +16,15 @@ use std::{
 use bytes::Bytes;
 use crossbeam_channel::{Receiver, Sender, select_biased};
 
-pub(crate) use private::*;
-
+mod errors;
 pub(crate) mod private {
     pub trait BuiltAsset: 'static {
         type Built: 'static;
     }
 }
+
+pub use errors::*;
+pub(crate) use private::*;
 
 const INVARIANT: &str = "asset type-erasure invariant violated";
 
@@ -57,44 +60,43 @@ impl<T: GameAsset> private::BuiltAsset for T {
 
 impl<T: GameAsset> Asset for T {}
 
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct AssetLabel(Arc<str>);
+
+impl AssetLabel {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for AssetLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl fmt::Debug for AssetLabel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&*self.0, f)
+    }
+}
+
+impl From<&str> for AssetLabel {
+    fn from(s: &str) -> Self {
+        Self(Arc::from(s))
+    }
+}
+
+impl From<String> for AssetLabel {
+    fn from(s: String) -> Self {
+        Self(Arc::from(s))
+    }
+}
+
 pub enum AssetStatus {
-    Failed(String),
+    Failed(Arc<AssetError>),
     Pending,
     Ready,
-}
-
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum AssetError {
-    #[error("invalid argument: {msg}")]
-    InvalidArgument { msg: &'static str },
-
-    #[error("asset not found: {t}x{id}")]
-    NotFound { id: usize, t: &'static str },
-
-    #[error("operation failed")]
-    OperationFailed {
-        #[source]
-        source: Box<dyn Error + Send + Sync>,
-    },
-
-    #[error("asset {t} cannot be handled for descriptor {d}")]
-    UnhandledAsset { d: &'static str, t: &'static str },
-
-    #[error("asset type unknown: {t}")]
-    UnknownAsset { t: &'static str },
-
-    #[error("asset path scheme unknown: {s}")]
-    UnknownScheme { s: String },
-}
-
-impl AssetError {
-    fn not_found<A: Asset>(handle: &Handle<A>) -> Self {
-        Self::NotFound {
-            id: handle.id,
-            t: type_name::<A>(),
-        }
-    }
 }
 
 #[non_exhaustive]
@@ -192,7 +194,7 @@ pub trait Descriptor: Send + 'static {
         None
     }
 
-    fn label(&self) -> Option<Cow<'_, str>> {
+    fn label(&self) -> Option<AssetLabel> {
         None
     }
 }
@@ -205,12 +207,14 @@ trait ErasedLoader: Send + Sync + 'static {
     fn parse(
         self: Arc<Self>,
         desc: Box<dyn Any + Send>,
+        label: AssetLabel,
         bytes: Option<Bytes>,
     ) -> Result<BuildFn, AssetError>;
 }
 
 pub trait Loader<A: Asset>: Send + Sync + 'static {
     type Desc: Descriptor;
+    type Error: Error + Send + Sync + 'static;
     type Parsed: Send + 'static;
 
     fn build(
@@ -241,10 +245,15 @@ where
     fn parse(
         self: Arc<Self>,
         desc: Box<dyn Any + Send>,
+        label: AssetLabel,
         bytes: Option<Bytes>,
     ) -> Result<BuildFn, AssetError> {
         let desc = desc.downcast::<L::Desc>().expect(INVARIANT);
-        let parsed = self.0.parse(&desc, bytes)?;
+        let parsed =
+            self.0.parse(&desc, bytes).map_err(|e| AssetError::Parse {
+                asset: label.clone(),
+                source: Box::new(e),
+            })?;
 
         Ok(Box::new(move |handle, store| {
             let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
@@ -254,7 +263,9 @@ where
                 .as_any_mut()
                 .downcast_mut::<Store<A>>()
                 .expect(INVARIANT)
-                .update(*h, SlotState::Ready(built))
+                .update(*h, SlotState::Ready(built));
+
+            Ok(())
         }))
     }
 }
@@ -274,7 +285,7 @@ impl<T> Slot<T> {
 }
 
 enum SlotState<T> {
-    Failed(Box<dyn Error + Send + Sync>),
+    Failed(Arc<AssetError>),
     Pending,
     Ready(T),
 }
@@ -282,15 +293,14 @@ enum SlotState<T> {
 impl<T> From<&SlotState<T>> for AssetStatus {
     fn from(state: &SlotState<T>) -> Self {
         match state {
-            SlotState::Failed(err) => AssetStatus::Failed(err.to_string()),
+            SlotState::Failed(err) => AssetStatus::Failed(err.clone()),
             SlotState::Pending => AssetStatus::Pending,
             SlotState::Ready(_) => AssetStatus::Ready,
         }
     }
 }
 
-type ApplyFn =
-    Box<dyn FnOnce(&mut dyn ErasedStore) -> Result<(), AssetError> + Send>;
+type ApplyFn = Box<dyn FnOnce(&mut dyn ErasedStore) + Send>;
 
 struct QueuedAsset {
     apply: ApplyFn,
@@ -328,15 +338,15 @@ impl Registry {
         &mut self,
         mut desc: D,
         priority: Priority,
-    ) -> Result<Handle<A>, AssetError> {
+    ) -> Result<Handle<A>, LoadError> {
         let asset_key = TypeId::of::<A>();
         let key = (asset_key, TypeId::of::<D>());
         let loader = self
             .loaders
             .get(&key)
-            .ok_or(AssetError::UnhandledAsset {
-                d: type_name::<D>(),
-                t: type_name::<A>(),
+            .ok_or(LoadError::UnhandledAsset {
+                asset: type_name::<A>(),
+                desc: type_name::<D>(),
             })?
             .clone();
 
@@ -346,13 +356,17 @@ impl Registry {
             .stores
             .entry(asset_key)
             .or_insert_with(|| Box::new(Store::<A>::new()));
+        let route = Route::resolve(desc.take_external(), &self.readers)?;
 
         let (id, generation) = store.insert_pending();
         let handle = Handle::new(id, generation);
+        let label = desc.label().unwrap_or_else(|| {
+            AssetLabel::from(format!("{}#{}", type_name::<A>(), id))
+        });
 
-        let route = Route::resolve(desc.take_external(), &self.readers)?;
         let job = LoadJob {
             desc: Box::new(desc),
+            label: label.clone(),
             loader,
             submit: self.get_submit_fn(handle),
         };
@@ -362,18 +376,11 @@ impl Registry {
         Ok(handle)
     }
 
-    fn process_queued_assets(&mut self) -> Result<(), AssetError> {
+    fn process_queued_assets(&mut self) {
         while let Ok(queued) = self.qrx.try_recv() {
-            let store = self.stores.get_mut(&queued.type_id).ok_or(
-                AssetError::UnknownAsset {
-                    t: queued.type_name,
-                },
-            )?;
-
-            (queued.apply)(store.as_mut())?;
+            let store = self.stores.get_mut(&queued.type_id).expect(INVARIANT);
+            (queued.apply)(store.as_mut())
         }
-
-        Ok(())
     }
 
     // ------------------------------------------------------------------------
@@ -386,10 +393,7 @@ impl Registry {
         self.readers.register(scheme, reader)
     }
 
-    pub fn register_loader<A, D, L>(
-        &mut self,
-        loader: L,
-    ) -> Result<(), AssetError>
+    pub fn register_loader<A, D, L>(&mut self, loader: L)
     where
         A: Asset,
         D: Descriptor,
@@ -397,13 +401,10 @@ impl Registry {
     {
         let entry = self.loaders.entry((TypeId::of::<A>(), TypeId::of::<D>()));
         match entry {
-            Entry::Occupied(mut e) => {
-                e.insert(Arc::new(LoaderCell::new(loader)));
-                Ok(())
+            Entry::Occupied(_) => panic!("duplicate loader registration"),
+            Entry::Vacant(e) => {
+                let _ = e.insert(Arc::new(LoaderCell::new(loader)));
             }
-            Entry::Vacant(_) => Err(AssetError::OperationFailed {
-                source: format!("duplicate loader").into(),
-            }),
         }
     }
 
@@ -413,9 +414,19 @@ impl Registry {
         let tx = self.qtx.clone();
 
         Box::new(move |result| {
-            let apply: ApplyFn = Box::new(move |store| match result {
-                Err(err) => Err(err),
-                Ok(build) => build(&handle, store),
+            let apply: ApplyFn = Box::new(move |store| {
+                let store = store
+                    .as_any_mut()
+                    .downcast_mut::<Store<A>>()
+                    .expect(INVARIANT);
+
+                let state = match result.and_then(|build| build(&handle, store))
+                {
+                    Ok(()) => return,
+                    Err(err) => SlotState::Failed(Arc::new(err)),
+                };
+
+                let _ = store.update(handle, state);
             });
 
             let _ = tx.send(QueuedAsset {
@@ -438,12 +449,17 @@ impl Route {
     fn resolve(
         data: Option<AssetData>,
         readers: &Readers,
-    ) -> Result<Self, AssetError> {
+    ) -> Result<Self, LoadError> {
         Ok(match data {
             None => Route::Ready(None),
             Some(AssetData::Inline(bytes)) => Route::Ready(Some(bytes)),
             Some(AssetData::Path(path)) => {
-                let reader = readers.get(&path.scheme)?;
+                let reader = readers.get(&path.scheme).ok_or(
+                    LoadError::UnknownScheme {
+                        path: path.path.clone().into(),
+                        scheme: path.scheme.clone().into(),
+                    },
+                )?;
                 Route::Fetch(Box::new(move || reader.read(&path.path)))
             }
         })
@@ -457,13 +473,8 @@ impl Readers {
         Self(HashMap::new())
     }
 
-    fn get(&self, scheme: &str) -> Result<Arc<dyn AssetReader>, AssetError> {
-        self.0
-            .get(scheme)
-            .cloned()
-            .ok_or_else(|| AssetError::UnknownScheme {
-                s: scheme.to_owned(),
-            })
+    fn get(&self, scheme: &str) -> Option<Arc<dyn AssetReader>> {
+        self.0.get(scheme).cloned()
     }
 
     fn register(
@@ -479,6 +490,7 @@ type SubmitFn = Box<dyn FnOnce(Result<BuildFn, AssetError>) + Send>;
 
 struct LoadJob {
     desc: Box<dyn Any + Send>,
+    label: AssetLabel,
     loader: Arc<dyn ErasedLoader>,
     submit: SubmitFn,
 }
@@ -487,10 +499,11 @@ impl LoadJob {
     fn run(self, bytes: Result<Option<Bytes>, AssetError>) {
         let LoadJob {
             desc,
+            label,
             loader,
             submit,
         } = self;
-        submit(bytes.and_then(|b| loader.parse(desc, b)));
+        submit(bytes.and_then(|b| loader.parse(desc, label, b)));
     }
 }
 
@@ -613,20 +626,17 @@ impl<A: Asset> Store<A> {
         }
     }
 
-    fn get(
-        &self,
-        handle: &Handle<A>,
-    ) -> Result<&SlotState<A::Built>, AssetError> {
+    fn get(&self, handle: &Handle<A>) -> Option<&SlotState<A::Built>> {
         if handle.id >= self.items.len() {
-            return Err(AssetError::not_found(handle));
+            return None;
         }
 
         let slot = &self.items[handle.id];
         if slot.generation != handle.generation {
-            return Err(AssetError::not_found(handle));
+            return None;
         }
 
-        Ok(&slot.state)
+        Some(&slot.state)
     }
 
     fn insert(&mut self, state: SlotState<A::Built>) -> Handle<A> {
@@ -638,14 +648,10 @@ impl<A: Asset> Store<A> {
         }
     }
 
-    fn update(
-        &mut self,
-        handle: Handle<A>,
-        state: SlotState<A::Built>,
-    ) -> Result<(), AssetError> {
-        let _ = self.get(&handle)?;
-        self.items[handle.id].state = state;
-        Ok(())
+    fn update(&mut self, handle: Handle<A>, state: SlotState<A::Built>) {
+        if let Some(_) = self.get(&handle) {
+            self.items[handle.id].state = state;
+        }
     }
 }
 
@@ -667,12 +673,10 @@ struct FileReader {
 impl FileReader {
     pub fn new(root: impl AsRef<Path>) -> Result<Self, AssetError> {
         let root = resolve_root(root.as_ref());
-        let root =
-            root.canonicalize()
-                .map_err(|e| AssetError::OperationFailed {
-                    source: format!("asset root {}: {e}", root.display())
-                        .into(),
-                })?;
+        let root = root.canonicalize().map_err(|e| AssetError::Io {
+            path: root,
+            source: e,
+        })?;
 
         Ok(Self { root })
     }
@@ -685,14 +689,13 @@ impl AssetReader for FileReader {
             .components()
             .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
         {
-            return Err(AssetError::InvalidArgument {
-                msg: "asset path must be relative and stay instide the asset root",
-            });
+            return Err(AssetError::PathOutsideRoot { path: path.into() });
         }
 
         fs::read(self.root.join(rel)).map(Bytes::from).map_err(|e| {
-            AssetError::OperationFailed {
-                source: format!("{path}: {e}").into(),
+            AssetError::Io {
+                path: self.root.join(rel),
+                source: e,
             }
         })
     }
