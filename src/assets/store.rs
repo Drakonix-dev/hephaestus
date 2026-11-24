@@ -1,10 +1,12 @@
 use core::fmt;
 use std::{
-    any::Any,
+    any::{Any, TypeId, type_name},
     hash::{Hash, Hasher},
     marker::PhantomData,
-    sync::Arc,
+    sync::{Arc, Weak},
 };
+
+use crossbeam_channel::Sender;
 
 use crate::assets::AssetError;
 
@@ -49,20 +51,14 @@ impl From<String> for AssetLabel {
     }
 }
 
-pub enum AssetStatus {
-    Failed(Arc<AssetError>),
-    Pending,
-    Ready,
-}
-
 pub(super) trait ErasedStore: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn insert_pending(&mut self) -> (usize, u64);
+    fn free(&mut self, freed: Freed);
 }
 
 pub(super) struct Store<A: Asset> {
     free: Vec<usize>,
-    items: Vec<Slot<A::Built>>,
+    items: Vec<Slot<A>>,
 }
 
 impl<A: Asset> Store<A> {
@@ -73,37 +69,57 @@ impl<A: Asset> Store<A> {
         }
     }
 
-    fn get(&self, handle: &Handle<A>) -> Option<&SlotState<A::Built>> {
-        if handle.0.id >= self.items.len() {
-            return None;
-        }
+    fn free(&mut self, freed: Freed) {
+        if let Some(slot) = self.items.get_mut(freed.id) {
+            if slot.generation == freed.generation {
+                slot.generation += 1;
+                slot.guard = Weak::new();
+                slot.state = SlotState::Vacant;
 
-        let slot = &self.items[handle.0.id];
-        if slot.generation != handle.0.generation {
-            return None;
+                self.free.push(freed.id);
+            }
         }
-
-        Some(&slot.state)
     }
 
-    fn insert(&mut self, state: SlotState<A::Built>) -> Handle<A> {
+    pub(super) fn insert(
+        &mut self,
+        tx: Sender<Freed>,
+        state: SlotState<A::Built>,
+    ) -> Handle<A> {
         if let Some(id) = self.free.pop() {
             let slot = &mut self.items[id];
+            let key = Key::new(id, slot.generation);
+            let guard = Arc::new(Guard::new(key, tx));
+
+            slot.guard = Arc::downgrade(&guard);
             slot.state = state;
-            Handle(Token::new(id, slot.generation))
+
+            Handle(guard)
         } else {
-            self.items.push(Slot::new(state));
-            Handle(Token::new(self.items.len() - 1, 0))
+            let key = Key::new(self.items.len(), 0);
+            let guard = Arc::new(Guard::new(key, tx));
+
+            self.items.push(Slot::new(Arc::downgrade(&guard), state));
+
+            Handle(guard)
         }
     }
 
-    pub(super) fn update(
-        &mut self,
-        handle: Handle<A>,
-        state: SlotState<A::Built>,
-    ) {
-        if self.get(&handle).is_some() {
-            self.items[handle.0.id].state = state;
+    pub(super) fn lookup(&self, key: &Key<A>) -> Option<&SlotState<A::Built>> {
+        if let Some(slot) = self.items.get(key.id) {
+            if slot.generation == key.generation {
+                return Some(&slot.state);
+            }
+        }
+
+        None
+    }
+
+    pub(super) fn update(&mut self, key: &Key<A>, state: SlotState<A::Built>) {
+        if let Some(slot) = self.items.get_mut(key.id) {
+            if slot.generation == key.generation {
+                slot.state = state;
+            }
         }
     }
 }
@@ -113,21 +129,22 @@ impl<A: Asset> ErasedStore for Store<A> {
         self
     }
 
-    fn insert_pending(&mut self) -> (usize, u64) {
-        let handle = self.insert(SlotState::Pending);
-        (handle.0.id, handle.0.generation)
+    fn free(&mut self, freed: Freed) {
+        self.free(freed)
     }
 }
 
-struct Slot<T> {
+struct Slot<A: Asset> {
     generation: u64,
-    state: SlotState<T>,
+    guard: Weak<Guard<A>>,
+    state: SlotState<A::Built>,
 }
 
-impl<T> Slot<T> {
-    fn new(state: SlotState<T>) -> Self {
+impl<A: Asset> Slot<A> {
+    fn new(guard: Weak<Guard<A>>, state: SlotState<A::Built>) -> Self {
         Self {
             generation: 0,
+            guard,
             state,
         }
     }
@@ -137,29 +154,79 @@ pub(super) enum SlotState<T> {
     Failed(Arc<AssetError>),
     Pending,
     Ready(T),
+    Vacant,
 }
 
-impl<T> From<&SlotState<T>> for AssetStatus {
-    fn from(state: &SlotState<T>) -> Self {
-        match state {
-            SlotState::Failed(err) => AssetStatus::Failed(err.clone()),
-            SlotState::Pending => AssetStatus::Pending,
-            SlotState::Ready(_) => AssetStatus::Ready,
-        }
+pub struct Handle<A: Asset>(pub(super) Arc<Guard<A>>);
+
+impl<A: Asset> Handle<A> {
+    pub fn downgrade(&self) -> WeakHandle<A> {
+        WeakHandle(self.0.key)
+    }
+
+    pub(super) fn key(&self) -> Key<A> {
+        self.0.key
     }
 }
 
-pub struct Handle<T: Asset>(pub(super) Token<T>);
-pub struct OwnedHandle<T: Asset>(pub(super) Arc<Token<T>>);
+impl<A: Asset> Clone for Handle<A> {
+    fn clone(&self) -> Self {
+        Self(Arc::clone(&self.0))
+    }
+}
 
-struct Token<T: Asset> {
-    generation: u64,
-    id: usize,
+impl<A: Asset> Eq for Handle<A> {}
+
+impl<A: Asset> Hash for Handle<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.key.hash(state);
+    }
+}
+
+impl<A: Asset> PartialEq for Handle<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.key.eq(&other.0.key)
+    }
+}
+
+pub struct WeakHandle<A: Asset>(pub(super) Key<A>);
+
+impl<A: Asset> WeakHandle<A> {
+    pub(super) fn key(&self) -> Key<A> {
+        self.0
+    }
+}
+
+impl<A: Asset> Clone for WeakHandle<A> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<A: Asset> Copy for WeakHandle<A> {}
+
+impl<A: Asset> Eq for WeakHandle<A> {}
+
+impl<A: Asset> Hash for WeakHandle<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl<A: Asset> PartialEq for WeakHandle<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+
+pub(super) struct Key<T> {
+    pub(super) generation: u64,
+    pub(super) id: usize,
     _marker: PhantomData<fn() -> T>,
 }
 
-impl<T: Asset> Token<T> {
-    fn new(id: usize, generation: u64) -> Self {
+impl<T> Key<T> {
+    pub(super) fn new(id: usize, generation: u64) -> Self {
         Self {
             id,
             generation,
@@ -168,17 +235,54 @@ impl<T: Asset> Token<T> {
     }
 }
 
-impl<T: Asset> Eq for Token<T> {}
-
-impl<T: Asset> Hash for Token<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.generation.hash(state);
-        self.id.hash(state);
+impl<T> Clone for Key<T> {
+    fn clone(&self) -> Self {
+        *self
     }
 }
 
-impl<T: Asset> PartialEq for Token<T> {
+impl<T> Copy for Key<T> {}
+
+impl<T> Eq for Key<T> {}
+
+impl<T> Hash for Key<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.generation.hash(state);
+    }
+}
+
+impl<T> PartialEq for Key<T> {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id && self.generation == other.generation
     }
+}
+
+pub(super) struct Guard<T> {
+    pub(super) key: Key<T>,
+    tx: Sender<Freed>,
+}
+
+impl<T> Guard<T> {
+    pub(super) fn new(key: Key<T>, tx: Sender<Freed>) -> Self {
+        Self { key, tx }
+    }
+}
+
+impl<T> Drop for Guard<T> {
+    fn drop(&mut self) {
+        let _ = self.tx.send(Freed {
+            type_id: TypeId::of::<T>(),
+            type_name: type_name::<T>(),
+            id: self.key.id,
+            generation: self.key.generation,
+        });
+    }
+}
+
+pub(super) struct Freed {
+    pub(super) type_id: TypeId,
+    pub(super) type_name: &'static str,
+    pub(super) id: usize,
+    pub(super) generation: u64,
 }

@@ -6,7 +6,7 @@ use std::{
 use bytes::Bytes;
 
 use crate::assets::{
-    Asset, AssetError, AssetLabel, ErasedStore, Handle, INVARIANT, SlotState,
+    Asset, AssetError, AssetLabel, ErasedStore, INVARIANT, Key, SlotState,
     Store,
 };
 
@@ -68,8 +68,8 @@ where
                     source: Box::new(source),
                 })?;
 
-        Ok(Box::new(move |handle, store| {
-            let h = handle.downcast_ref::<Handle<A>>().expect(INVARIANT);
+        Ok(Box::new(move |key, store| {
+            let key = key.downcast_ref::<Key<A>>().expect(INVARIANT);
             let built = self.0.build(&desc, parsed).map_err(|source| {
                 AssetError::Build {
                     asset: label,
@@ -81,7 +81,7 @@ where
                 .as_any_mut()
                 .downcast_mut::<Store<A>>()
                 .expect(INVARIANT)
-                .update(*h, SlotState::Ready(built));
+                .update(key, SlotState::Ready(built));
 
             Ok(())
         }))
