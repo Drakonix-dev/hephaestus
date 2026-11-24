@@ -52,6 +52,7 @@ impl From<String> for AssetLabel {
 }
 
 pub(super) trait ErasedStore: Any {
+    fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn free(&mut self, freed: Freed);
 }
@@ -71,20 +72,22 @@ impl<A: Asset> Store<A> {
 
     fn free(&mut self, freed: Freed) {
         if let Some(slot) = self.items.get_mut(freed.id) {
-            if slot.generation == freed.generation {
-                slot.generation += 1;
-                slot.guard = Weak::new();
-                slot.state = SlotState::Vacant;
-
-                self.free.push(freed.id);
+            if slot.generation != freed.generation {
+                return;
             }
+
+            slot.generation += 1;
+            slot.guard = Weak::new();
+            slot.state = AssetState::Vacant;
+
+            self.free.push(freed.id);
         }
     }
 
     pub(super) fn insert(
         &mut self,
         tx: Sender<Freed>,
-        state: SlotState<A::Built>,
+        state: AssetState<A::Built>,
     ) -> Handle<A> {
         if let Some(id) = self.free.pop() {
             let slot = &mut self.items[id];
@@ -105,7 +108,7 @@ impl<A: Asset> Store<A> {
         }
     }
 
-    pub(super) fn lookup(&self, key: &Key<A>) -> Option<&SlotState<A::Built>> {
+    pub(super) fn lookup(&self, key: &Key<A>) -> Option<&AssetState<A::Built>> {
         if let Some(slot) = self.items.get(key.id) {
             if slot.generation == key.generation {
                 return Some(&slot.state);
@@ -115,7 +118,7 @@ impl<A: Asset> Store<A> {
         None
     }
 
-    pub(super) fn update(&mut self, key: &Key<A>, state: SlotState<A::Built>) {
+    pub(super) fn update(&mut self, key: &Key<A>, state: AssetState<A::Built>) {
         if let Some(slot) = self.items.get_mut(key.id) {
             if slot.generation == key.generation {
                 slot.state = state;
@@ -125,6 +128,10 @@ impl<A: Asset> Store<A> {
 }
 
 impl<A: Asset> ErasedStore for Store<A> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
@@ -137,11 +144,11 @@ impl<A: Asset> ErasedStore for Store<A> {
 struct Slot<A: Asset> {
     generation: u64,
     guard: Weak<Guard<A>>,
-    state: SlotState<A::Built>,
+    state: AssetState<A::Built>,
 }
 
 impl<A: Asset> Slot<A> {
-    fn new(guard: Weak<Guard<A>>, state: SlotState<A::Built>) -> Self {
+    fn new(guard: Weak<Guard<A>>, state: AssetState<A::Built>) -> Self {
         Self {
             generation: 0,
             guard,
@@ -150,11 +157,30 @@ impl<A: Asset> Slot<A> {
     }
 }
 
-pub(super) enum SlotState<T> {
+#[non_exhaustive]
+pub enum AssetState<T> {
     Failed(Arc<AssetError>),
     Pending,
     Ready(T),
     Vacant,
+}
+
+#[non_exhaustive]
+pub enum AssetStatus {
+    Failed(Arc<AssetError>),
+    Pending,
+    Ready,
+}
+
+impl<T> Into<Option<AssetStatus>> for AssetState<T> {
+    fn into(self) -> Option<AssetStatus> {
+        match self {
+            AssetState::Failed(err) => Some(AssetStatus::Failed(err.clone())),
+            AssetState::Pending => Some(AssetStatus::Pending),
+            AssetState::Ready(_) => Some(AssetStatus::Ready),
+            AssetState::Vacant => None,
+        }
+    }
 }
 
 pub struct Handle<A: Asset>(pub(super) Arc<Guard<A>>);
@@ -216,6 +242,12 @@ impl<A: Asset> Hash for WeakHandle<A> {
 impl<A: Asset> PartialEq for WeakHandle<A> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
+    }
+}
+
+impl<A: Asset> From<&Handle<A>> for WeakHandle<A> {
+    fn from(handle: &Handle<A>) -> Self {
+        Self(handle.key())
     }
 }
 

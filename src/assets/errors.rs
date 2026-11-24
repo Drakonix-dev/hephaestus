@@ -12,9 +12,6 @@ pub enum AssetError {
         source: Box<dyn Error + Send + Sync>,
     },
 
-    #[error("handle released before load finished")]
-    Cancelled,
-
     #[error("{asset} depends on {dependency}, which failed")]
     DependencyFailed {
         asset: AssetLabel,
@@ -39,9 +36,6 @@ pub enum AssetError {
         #[source]
         source: io::Error,
     },
-
-    #[error("superseded by a newer load")]
-    Superseded,
 }
 
 #[derive(Debug, thiserror::Error)]

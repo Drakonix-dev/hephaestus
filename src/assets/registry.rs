@@ -8,10 +8,10 @@ use std::{
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::assets::{
-    Asset, AssetConfig, AssetLabel, AssetReader, Descriptor, ErasedLoader,
-    ErasedStore, FileReader, Freed, Handle, INVARIANT, InitError, Key,
-    LoadError, LoadJob, Loader, LoaderCell, Pool, Priority, Readers, Route,
-    SlotState, Store, SubmitFn,
+    Asset, AssetConfig, AssetLabel, AssetReader, AssetState, AssetStatus,
+    Descriptor, ErasedLoader, ErasedStore, FileReader, Freed, GameAsset,
+    Handle, INVARIANT, InitError, Key, LoadError, LoadJob, Loader, LoaderCell,
+    Pool, Priority, Readers, Route, Store, SubmitFn, WeakHandle,
 };
 
 pub struct Registry {
@@ -45,6 +45,27 @@ impl Registry {
         })
     }
 
+    pub fn get<A: GameAsset>(
+        &self,
+        handle: impl Into<WeakHandle<A>>,
+    ) -> Result<Option<&AssetState<A::Built>>, LoadError> {
+        self.get_built(handle)
+    }
+
+    pub(crate) fn get_built<A: Asset>(
+        &self,
+        handle: impl Into<WeakHandle<A>>,
+    ) -> Result<Option<&AssetState<A::Built>>, LoadError> {
+        Ok(self
+            .stores
+            .get(&TypeId::of::<A>())
+            .expect(INVARIANT)
+            .as_any()
+            .downcast_ref::<Store<A>>()
+            .expect(INVARIANT)
+            .lookup(&handle.into().key()))
+    }
+
     pub fn load<A: Asset, D: Descriptor>(
         &mut self,
         mut desc: D,
@@ -72,7 +93,7 @@ impl Registry {
         let label = desc.label();
         let route = Route::resolve(desc.take_external(), &self.readers)?;
 
-        let handle = store.insert(self.ftx.clone(), SlotState::Pending);
+        let handle = store.insert(self.ftx.clone(), AssetState::Pending);
         let label = label.unwrap_or_else(|| {
             let key = handle.key();
             AssetLabel::from(format!(
@@ -95,23 +116,11 @@ impl Registry {
         Ok(handle)
     }
 
-    pub(crate) fn process_queued_assets(&mut self) {
-        while let Ok(freed) = self.frx.try_recv() {
-            self.stores
-                .get_mut(&freed.type_id)
-                .unwrap_or_else(|| {
-                    panic!("no store for {}: {}", freed.type_name, INVARIANT)
-                })
-                .free(freed);
-        }
-
-        while let Ok(queued) = self.qrx.try_recv() {
-            let store =
-                self.stores.get_mut(&queued.type_id).unwrap_or_else(|| {
-                    panic!("no store for {}: {}", queued.type_name, INVARIANT)
-                });
-            (queued.apply)(store.as_mut())
-        }
+    pub fn status<A: Asset>(
+        &self,
+        handle: impl Into<WeakHandle<A>>,
+    ) -> Result<Option<AssetStatus>, LoadError> {
+        self.get_built(handle).map(AssetStatus::from)
     }
 
     // ------------------------------------------------------------------------
@@ -150,6 +159,27 @@ impl Registry {
 
     // ------------------------------------------------------------------------
 
+    pub(crate) fn process_queued_assets(&mut self) {
+        while let Ok(freed) = self.frx.try_recv() {
+            self.stores
+                .get_mut(&freed.type_id)
+                .unwrap_or_else(|| {
+                    panic!("no store for {}: {}", freed.type_name, INVARIANT)
+                })
+                .free(freed);
+        }
+
+        while let Ok(queued) = self.qrx.try_recv() {
+            let store =
+                self.stores.get_mut(&queued.type_id).unwrap_or_else(|| {
+                    panic!("no store for {}: {}", queued.type_name, INVARIANT)
+                });
+            (queued.apply)(store.as_mut())
+        }
+    }
+
+    // ------------------------------------------------------------------------
+
     fn get_submit_fn<A: Asset>(&self, key: Key<A>) -> SubmitFn {
         let tx = self.qtx.clone();
 
@@ -160,13 +190,13 @@ impl Registry {
                     .downcast_mut::<Store<A>>()
                     .expect(INVARIANT);
 
-                if !matches!(store.lookup(&key), Some(SlotState::Pending)) {
+                if !matches!(store.lookup(&key), Some(AssetState::Pending)) {
                     return;
                 }
 
                 let state = match result.and_then(|build| build(&key, store)) {
                     Ok(()) => return,
-                    Err(err) => SlotState::Failed(Arc::new(err)),
+                    Err(err) => AssetState::Failed(Arc::new(err)),
                 };
 
                 store.update(&key, state)
