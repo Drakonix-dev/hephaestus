@@ -5,14 +5,10 @@ use std::{
 
 use bytes::Bytes;
 
-use crate::assets::{
-    Asset, AssetError, AssetLabel, ErasedStore, INVARIANT, Key, SlotState,
-    Store,
-};
+use crate::assets::{Asset, AssetError, AssetLabel, INVARIANT};
 
-pub(super) type BuildFn = Box<
-    dyn FnOnce(&dyn Any, &mut dyn ErasedStore) -> Result<(), AssetError> + Send,
->;
+pub(super) type BuildFn =
+    Box<dyn FnOnce() -> Result<Box<dyn Any>, AssetError> + Send>;
 
 pub(super) trait ErasedLoader: Send + Sync + 'static {
     fn parse(
@@ -68,22 +64,14 @@ where
                     source: Box::new(source),
                 })?;
 
-        Ok(Box::new(move |key, store| {
-            let key = key.downcast_ref::<Key<A>>().expect(INVARIANT);
-            let built = self.0.build(&desc, parsed).map_err(|source| {
-                AssetError::Build {
+        Ok(Box::new(move || {
+            self.0
+                .build(&desc, parsed)
+                .map(|b| -> Box<dyn Any> { Box::new(b) })
+                .map_err(|source| AssetError::Build {
                     asset: label,
                     source: Box::new(source),
-                }
-            })?;
-
-            store
-                .as_any_mut()
-                .downcast_mut::<Store<A>>()
-                .expect(INVARIANT)
-                .update(key, SlotState::Ready(built));
-
-            Ok(())
+                })
         }))
     }
 }

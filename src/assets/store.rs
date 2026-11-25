@@ -78,31 +78,27 @@ impl<A: Asset> Store<A> {
 
             slot.generation += 1;
             slot.guard = Weak::new();
-            slot.state = AssetState::Vacant;
+            slot.state = None;
 
             self.free.push(freed.id);
         }
     }
 
-    pub(super) fn insert(
-        &mut self,
-        tx: Sender<Freed>,
-        state: AssetState<A::Built>,
-    ) -> Handle<A> {
+    pub(super) fn insert(&mut self, tx: Sender<Freed>) -> Handle<A> {
         if let Some(id) = self.free.pop() {
             let slot = &mut self.items[id];
             let key = Key::new(id, slot.generation);
             let guard = Arc::new(Guard::new(key, tx));
 
             slot.guard = Arc::downgrade(&guard);
-            slot.state = state;
+            slot.state = Some(AssetState::Pending);
 
             Handle(guard)
         } else {
             let key = Key::new(self.items.len(), 0);
             let guard = Arc::new(Guard::new(key, tx));
 
-            self.items.push(Slot::new(Arc::downgrade(&guard), state));
+            self.items.push(Slot::new(Arc::downgrade(&guard)));
 
             Handle(guard)
         }
@@ -111,7 +107,7 @@ impl<A: Asset> Store<A> {
     pub(super) fn lookup(&self, key: &Key<A>) -> Option<&AssetState<A::Built>> {
         if let Some(slot) = self.items.get(key.id) {
             if slot.generation == key.generation {
-                return Some(&slot.state);
+                return slot.state.as_ref();
             }
         }
 
@@ -121,7 +117,7 @@ impl<A: Asset> Store<A> {
     pub(super) fn update(&mut self, key: &Key<A>, state: AssetState<A::Built>) {
         if let Some(slot) = self.items.get_mut(key.id) {
             if slot.generation == key.generation {
-                slot.state = state;
+                slot.state = Some(state);
             }
         }
     }
@@ -144,15 +140,15 @@ impl<A: Asset> ErasedStore for Store<A> {
 struct Slot<A: Asset> {
     generation: u64,
     guard: Weak<Guard<A>>,
-    state: AssetState<A::Built>,
+    state: Option<AssetState<A::Built>>,
 }
 
 impl<A: Asset> Slot<A> {
-    fn new(guard: Weak<Guard<A>>, state: AssetState<A::Built>) -> Self {
+    fn new(guard: Weak<Guard<A>>) -> Self {
         Self {
             generation: 0,
             guard,
-            state,
+            state: Some(AssetState::Pending),
         }
     }
 }
@@ -162,7 +158,16 @@ pub enum AssetState<T> {
     Failed(Arc<AssetError>),
     Pending,
     Ready(T),
-    Vacant,
+}
+
+impl<T> AssetState<T> {
+    pub fn status(&self) -> AssetStatus {
+        match self {
+            AssetState::Failed(err) => AssetStatus::Failed(err.clone()),
+            AssetState::Pending => AssetStatus::Pending,
+            AssetState::Ready(_) => AssetStatus::Ready,
+        }
+    }
 }
 
 #[non_exhaustive]
@@ -170,17 +175,6 @@ pub enum AssetStatus {
     Failed(Arc<AssetError>),
     Pending,
     Ready,
-}
-
-impl<T> Into<Option<AssetStatus>> for AssetState<T> {
-    fn into(self) -> Option<AssetStatus> {
-        match self {
-            AssetState::Failed(err) => Some(AssetStatus::Failed(err.clone())),
-            AssetState::Pending => Some(AssetStatus::Pending),
-            AssetState::Ready(_) => Some(AssetStatus::Ready),
-            AssetState::Vacant => None,
-        }
-    }
 }
 
 pub struct Handle<A: Asset>(pub(super) Arc<Guard<A>>);

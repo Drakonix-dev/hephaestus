@@ -1,6 +1,5 @@
 use std::{
     any::Any,
-    panic::{self, AssertUnwindSafe},
     path::{Component, Path},
     sync::Arc,
     thread::{self, JoinHandle},
@@ -11,6 +10,7 @@ use crossbeam_channel::{Receiver, Sender, select_biased};
 
 use crate::assets::{
     AssetConfig, AssetData, AssetError, AssetLabel, LoadError, Readers,
+    catch_panic,
     loader::{BuildFn, ErasedLoader},
 };
 
@@ -66,22 +66,8 @@ impl Pool {
         match route {
             Route::Fetch(fetch) => {
                 let _ = self.io_tx.send(Box::new(move || {
-                    let result = panic::catch_unwind(AssertUnwindSafe(|| {
-                        fetch().map(Some)
-                    }))
-                    .unwrap_or_else(|payload| {
-                        let message = payload
-                            .downcast_ref::<&str>()
-                            .map(|s| s.to_string())
-                            .or_else(|| {
-                                payload.downcast_ref::<String>().cloned()
-                            })
-                            .unwrap_or_else(|| "non-string panic".into());
-                        Err(AssetError::Panicked {
-                            asset: job.label.clone(),
-                            message,
-                        })
-                    });
+                    let result =
+                        catch_panic(job.label.clone(), || fetch().map(Some));
                     let _ = ptx.send(Box::new(|| job.run(result)));
                 }));
             }
@@ -198,19 +184,8 @@ impl LoadJob {
             submit,
         } = self;
 
-        let result = panic::catch_unwind(AssertUnwindSafe(|| {
-            bytes.and_then(|b| loader.parse(desc, label.clone(), b))
-        }))
-        .unwrap_or_else(|payload| {
-            let message = payload
-                .downcast_ref::<&str>()
-                .map(|s| s.to_string())
-                .or_else(|| payload.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "non-string panic".into());
-            Err(AssetError::Panicked {
-                asset: label,
-                message,
-            })
+        let result = catch_panic(label.clone(), || {
+            bytes.and_then(|b| loader.parse(desc, label, b))
         });
 
         submit(result);

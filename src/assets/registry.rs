@@ -11,7 +11,7 @@ use crate::assets::{
     Asset, AssetConfig, AssetLabel, AssetReader, AssetState, AssetStatus,
     Descriptor, ErasedLoader, ErasedStore, FileReader, Freed, GameAsset,
     Handle, INVARIANT, InitError, Key, LoadError, LoadJob, Loader, LoaderCell,
-    Pool, Priority, Readers, Route, Store, SubmitFn, WeakHandle,
+    Pool, Priority, Readers, Route, Store, SubmitFn, WeakHandle, catch_panic,
 };
 
 pub struct Registry {
@@ -48,22 +48,21 @@ impl Registry {
     pub fn get<A: GameAsset>(
         &self,
         handle: impl Into<WeakHandle<A>>,
-    ) -> Result<Option<&AssetState<A::Built>>, LoadError> {
+    ) -> Option<&AssetState<A::Built>> {
         self.get_built(handle)
     }
 
     pub(crate) fn get_built<A: Asset>(
         &self,
         handle: impl Into<WeakHandle<A>>,
-    ) -> Result<Option<&AssetState<A::Built>>, LoadError> {
-        Ok(self
-            .stores
+    ) -> Option<&AssetState<A::Built>> {
+        self.stores
             .get(&TypeId::of::<A>())
-            .expect(INVARIANT)
+            .expect("handle minted by different registry")
             .as_any()
             .downcast_ref::<Store<A>>()
             .expect(INVARIANT)
-            .lookup(&handle.into().key()))
+            .lookup(&handle.into().key())
     }
 
     pub fn load<A: Asset, D: Descriptor>(
@@ -93,7 +92,7 @@ impl Registry {
         let label = desc.label();
         let route = Route::resolve(desc.take_external(), &self.readers)?;
 
-        let handle = store.insert(self.ftx.clone(), AssetState::Pending);
+        let handle = store.insert(self.ftx.clone());
         let label = label.unwrap_or_else(|| {
             let key = handle.key();
             AssetLabel::from(format!(
@@ -104,11 +103,12 @@ impl Registry {
             ))
         });
 
+        let submit = self.get_submit_fn(handle.key(), label.clone());
         let job = LoadJob {
             desc: Box::new(desc),
             label,
             loader,
-            submit: self.get_submit_fn(handle.key()),
+            submit,
         };
 
         self.pool.submit(route, job, priority);
@@ -119,8 +119,8 @@ impl Registry {
     pub fn status<A: Asset>(
         &self,
         handle: impl Into<WeakHandle<A>>,
-    ) -> Result<Option<AssetStatus>, LoadError> {
-        self.get_built(handle).map(AssetStatus::from)
+    ) -> Option<AssetStatus> {
+        self.get_built(handle).map(|s| s.status())
     }
 
     // ------------------------------------------------------------------------
@@ -180,7 +180,11 @@ impl Registry {
 
     // ------------------------------------------------------------------------
 
-    fn get_submit_fn<A: Asset>(&self, key: Key<A>) -> SubmitFn {
+    fn get_submit_fn<A: Asset>(
+        &self,
+        key: Key<A>,
+        label: AssetLabel,
+    ) -> SubmitFn {
         let tx = self.qtx.clone();
 
         Box::new(move |result| {
@@ -194,10 +198,13 @@ impl Registry {
                     return;
                 }
 
-                let state = match result.and_then(|build| build(&key, store)) {
-                    Ok(()) => return,
-                    Err(err) => AssetState::Failed(Arc::new(err)),
-                };
+                let state =
+                    match result.and_then(|build| catch_panic(label, build)) {
+                        Ok(built) => AssetState::Ready(
+                            *built.downcast::<A::Built>().expect(INVARIANT),
+                        ),
+                        Err(err) => AssetState::Failed(Arc::new(err)),
+                    };
 
                 store.update(&key, state)
             });
