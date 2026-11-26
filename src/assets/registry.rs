@@ -202,7 +202,7 @@ impl Registry {
                         Err(err) => AssetState::Failed(Arc::new(err)),
                     };
 
-                store.update(&key, state)
+                store.set(&key, state)
             });
 
             let _ = tx.send(QueuedAsset {

@@ -116,35 +116,38 @@ impl<A: Asset> Store<A> {
         }
     }
 
-    fn free(&mut self, freed: Freed) {
-        if let Some(slot) = self.items.get_mut(freed.id) {
-            if slot.generation != freed.generation {
-                return;
-            }
+    fn ensure(&mut self, id: usize) -> &mut Slot<A> {
+        if id >= self.items.len() {
+            self.items.resize_with(id + 1, || Slot::new(Weak::new()));
+        }
 
-            slot.generation += 1;
+        &mut self.items[id]
+    }
+
+    fn free(&mut self, freed: Freed) {
+        let slot = self.ensure(freed.id);
+        if slot.generation <= freed.generation {
+            slot.generation = freed.generation + 1;
             slot.guard = Weak::new();
             slot.state = None;
-
-            self.allocator.release(Ticket {
-                id: freed.id,
-                generation: freed.generation,
-            })
         }
+
+        self.allocator.release(Ticket {
+            id: freed.id,
+            generation: freed.generation,
+        })
     }
 
     pub(super) fn insert(&mut self, tx: Sender<Freed>) -> Handle<A> {
         let t = self.allocator.alloc();
-        if t.id >= self.items.len() {
-            self.items.resize_with(t.id + 1, || Slot::new(Weak::new()));
-        }
 
         let key = Key::new(t.id, t.generation);
         let guard = Arc::new(Guard::new(TypeId::of::<A>(), key, tx));
+        let slot = self.ensure(t.id);
 
-        self.items[t.id].generation = t.generation;
-        self.items[t.id].guard = Arc::downgrade(&guard);
-        self.items[t.id].state = Some(AssetState::Pending);
+        slot.generation = t.generation;
+        slot.guard = Arc::downgrade(&guard);
+        slot.state = Some(AssetState::Pending);
 
         Handle(guard)
     }
@@ -152,7 +155,9 @@ impl<A: Asset> Store<A> {
     pub(super) fn lookup(&self, key: &Key<A>) -> Option<&AssetState<A::Built>> {
         if let Some(slot) = self.items.get(key.id) {
             if slot.generation == key.generation {
-                return slot.state.as_ref();
+                return Some(
+                    slot.state.as_ref().unwrap_or(&AssetState::Pending),
+                );
             } else if slot.generation > key.generation {
                 return None;
             }
@@ -161,12 +166,14 @@ impl<A: Asset> Store<A> {
         Some(&AssetState::Pending)
     }
 
-    pub(super) fn update(&mut self, key: &Key<A>, state: AssetState<A::Built>) {
-        if let Some(slot) = self.items.get_mut(key.id) {
-            if slot.generation == key.generation {
-                slot.state = Some(state);
-            }
+    pub(super) fn set(&mut self, key: &Key<A>, state: AssetState<A::Built>) {
+        let slot = self.ensure(key.id);
+        if key.generation < slot.generation {
+            return;
         }
+
+        slot.generation = key.generation;
+        slot.state = Some(state);
     }
 }
 
