@@ -1,6 +1,7 @@
 use core::fmt;
 use std::{
     any::{Any, TypeId, type_name},
+    collections::HashMap,
     hash::{Hash, Hasher},
     marker::PhantomData,
     sync::{Arc, Weak},
@@ -8,7 +9,7 @@ use std::{
 
 use crossbeam_channel::Sender;
 
-use crate::assets::AssetError;
+use crate::assets::{AssetError, INVARIANT};
 
 pub(crate) mod private {
     pub trait BuiltAsset: 'static {
@@ -48,6 +49,47 @@ impl From<&str> for AssetLabel {
 impl From<String> for AssetLabel {
     fn from(s: String) -> Self {
         Self(Arc::from(s))
+    }
+}
+
+#[derive(Default)]
+pub(super) struct Stores(HashMap<TypeId, Box<dyn ErasedStore>>);
+
+impl Stores {
+    pub(super) fn get_built<A: Asset>(
+        &self,
+        key: &Key<A>,
+    ) -> Option<&AssetState<A::Built>> {
+        self.0
+            .get(&TypeId::of::<A>())
+            .expect("handle minted by different registry")
+            .as_any()
+            .downcast_ref::<Store<A>>()
+            .expect(INVARIANT)
+            .lookup(&key)
+    }
+
+    pub(super) fn get_erased(
+        &mut self,
+        id: &TypeId,
+    ) -> Option<&mut Box<dyn ErasedStore>> {
+        self.0.get_mut(&id)
+    }
+
+    pub(super) fn get_mut<A: Asset>(&mut self) -> &mut Store<A> {
+        self.0
+            .get_mut(&TypeId::of::<A>())
+            .expect(INVARIANT)
+            .as_any_mut()
+            .downcast_mut::<Store<A>>()
+            .expect(INVARIANT)
+    }
+
+    pub(super) fn init<A: Asset>(&mut self) {
+        let _ = self
+            .0
+            .entry(TypeId::of::<A>())
+            .or_insert_with(|| Box::new(Store::<A>::new()));
     }
 }
 

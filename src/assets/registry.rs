@@ -9,13 +9,14 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::assets::{
     Asset, AssetConfig, AssetData, AssetLabel, AssetReader, AssetState,
-    AssetStatus, Descriptor, ErasedLoader, ErasedStore, FileReader, Freed,
-    GameAsset, Handle, INVARIANT, InitError, Key, LoadError, LoadJob, Loader,
-    LoaderCell, Pool, Priority, Readers, Route, Store, SubmitFn, WeakHandle,
-    catch_panic,
+    AssetStatus, Dependencies, Descriptor, ErasedLoader, ErasedStore,
+    FileReader, Freed, GameAsset, Handle, INVARIANT, InitError, Key, LoadError,
+    LoadJob, Loader, LoaderCell, Pool, Priority, Readers, Route, Store, Stores,
+    SubmitFn, WeakHandle, catch_panic,
 };
 
 pub struct Registry {
+    deps: Dependencies,
     frx: Receiver<Freed>,
     ftx: Sender<Freed>,
     loaders: HashMap<(TypeId, TypeId), Arc<dyn ErasedLoader>>,
@@ -23,7 +24,7 @@ pub struct Registry {
     qrx: Receiver<QueuedAsset>,
     qtx: Sender<QueuedAsset>,
     readers: Readers,
-    stores: HashMap<TypeId, Box<dyn ErasedStore>>,
+    stores: Stores,
 }
 
 impl Registry {
@@ -35,6 +36,7 @@ impl Registry {
         readers.register("file", FileReader::new(&cfg.root)?);
 
         Ok(Self {
+            deps: Dependencies::default(),
             frx,
             ftx,
             loaders: HashMap::new(),
@@ -42,7 +44,7 @@ impl Registry {
             qrx,
             qtx,
             readers,
-            stores: HashMap::new(),
+            stores: Stores::default(),
         })
     }
 
@@ -57,13 +59,7 @@ impl Registry {
         &self,
         handle: impl Into<WeakHandle<A>>,
     ) -> Option<&AssetState<A::Built>> {
-        self.stores
-            .get(&TypeId::of::<A>())
-            .expect("handle minted by different registry")
-            .as_any()
-            .downcast_ref::<Store<A>>()
-            .expect(INVARIANT)
-            .lookup(&handle.into().key())
+        self.stores.get_built(&handle.into().key())
     }
 
     pub fn load<A: Asset, D: Descriptor>(
@@ -71,8 +67,7 @@ impl Registry {
         mut desc: D,
         priority: Priority,
     ) -> Result<Handle<A>, LoadError> {
-        let asset_key = TypeId::of::<A>();
-        let key = (asset_key, TypeId::of::<D>());
+        let key = (TypeId::of::<A>(), TypeId::of::<D>());
         let loader = self
             .loaders
             .get(&key)
@@ -81,14 +76,7 @@ impl Registry {
                 desc: type_name::<D>(),
             })?
             .clone();
-
-        let store = self
-            .stores
-            .get_mut(&asset_key)
-            .expect(INVARIANT)
-            .as_any_mut()
-            .downcast_mut::<Store<A>>()
-            .expect(INVARIANT);
+        let store = self.stores.get_mut();
 
         let label = desc.label();
         let data = desc.take_external();
@@ -146,10 +134,7 @@ impl Registry {
         D: Descriptor,
         L: Loader<A, Desc = D>,
     {
-        let _ = self
-            .stores
-            .entry(TypeId::of::<A>())
-            .or_insert_with(|| Box::new(Store::<A>::new()));
+        self.stores.init::<A>();
 
         let entry = self.loaders.entry((TypeId::of::<A>(), TypeId::of::<D>()));
         match entry {
@@ -169,7 +154,7 @@ impl Registry {
     pub(crate) fn process_queued_assets(&mut self) {
         while let Ok(freed) = self.frx.try_recv() {
             self.stores
-                .get_mut(&freed.type_id)
+                .get_erased(&freed.type_id)
                 .unwrap_or_else(|| {
                     panic!("no store for {}: {}", freed.type_name, INVARIANT)
                 })
@@ -178,7 +163,7 @@ impl Registry {
 
         while let Ok(queued) = self.qrx.try_recv() {
             let store =
-                self.stores.get_mut(&queued.type_id).unwrap_or_else(|| {
+                self.stores.get_erased(&queued.type_id).unwrap_or_else(|| {
                     panic!("no store for {}: {}", queued.type_name, INVARIANT)
                 });
             (queued.apply)(store.as_mut())
