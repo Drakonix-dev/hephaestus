@@ -49,8 +49,8 @@ impl Pool {
         (
             Self { io_tx, p_txs },
             Workers {
-                handles: JoinOnDrop(handles),
-                stop,
+                _handles: JoinOnDrop(handles),
+                _stop: stop,
             },
         )
     }
@@ -124,8 +124,8 @@ impl Pool {
 
 pub(super) struct Workers {
     // ORDER MATTERS: stop must drop first
-    stop: Sender<()>,
-    handles: JoinOnDrop,
+    _stop: Sender<()>,
+    _handles: JoinOnDrop,
 }
 
 struct JoinOnDrop(Vec<JoinHandle<()>>);

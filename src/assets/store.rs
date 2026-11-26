@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
     marker::PhantomData,
-    sync::{Arc, Weak},
+    sync::Arc,
 };
 
 use crossbeam_channel::Sender;
@@ -118,7 +118,7 @@ impl<A: Asset> Store<A> {
 
     fn ensure(&mut self, id: usize) -> &mut Slot<A> {
         if id >= self.items.len() {
-            self.items.resize_with(id + 1, || Slot::new(Weak::new()));
+            self.items.resize_with(id + 1, || Slot::new());
         }
 
         &mut self.items[id]
@@ -128,7 +128,6 @@ impl<A: Asset> Store<A> {
         let slot = self.ensure(freed.id);
         if slot.generation <= freed.generation {
             slot.generation = freed.generation + 1;
-            slot.guard = Weak::new();
             slot.state = None;
         }
 
@@ -136,20 +135,6 @@ impl<A: Asset> Store<A> {
             id: freed.id,
             generation: freed.generation,
         })
-    }
-
-    pub(super) fn insert(&mut self, tx: Sender<Freed>) -> Handle<A> {
-        let t = self.allocator.alloc();
-
-        let key = Key::new(t.id, t.generation);
-        let guard = Arc::new(Guard::new(TypeId::of::<A>(), key, tx));
-        let slot = self.ensure(t.id);
-
-        slot.generation = t.generation;
-        slot.guard = Arc::downgrade(&guard);
-        slot.state = Some(AssetState::Pending);
-
-        Handle(guard)
     }
 
     pub(super) fn lookup(&self, key: &Key<A>) -> Option<&AssetState<A::Built>> {
@@ -193,16 +178,14 @@ impl<A: Asset> ErasedStore for Store<A> {
 
 struct Slot<A: Asset> {
     generation: u64,
-    guard: Weak<Guard<A>>,
     state: Option<AssetState<A::Built>>,
 }
 
 impl<A: Asset> Slot<A> {
-    fn new(guard: Weak<Guard<A>>) -> Self {
+    fn new() -> Self {
         Self {
             generation: 0,
-            guard,
-            state: None,
+            state: Some(AssetState::Pending),
         }
     }
 }

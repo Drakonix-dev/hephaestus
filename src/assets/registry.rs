@@ -10,9 +10,9 @@ use crossbeam_channel::{Receiver, Sender};
 use crate::assets::{
     Asset, AssetConfig, AssetData, AssetLabel, AssetReader, AssetState,
     AssetStatus, Descriptor, ErasedLoader, ErasedStore, FileReader, Freed,
-    GameAsset, Handle, INVARIANT, InitError, Key, LoadError, LoadJob, Loader,
-    LoaderCell, Pool, Priority, Readers, Route, Store, Stores, SubmitFn,
-    WeakHandle, Workers, catch_panic, ticket::Allocator,
+    GameAsset, Guard, Handle, INVARIANT, InitError, Key, LoadError, LoadJob,
+    Loader, LoaderCell, Pool, Priority, Readers, Route, Store, Stores,
+    SubmitFn, WeakHandle, Workers, catch_panic, ticket::Allocator,
 };
 
 pub struct Registry {
@@ -80,7 +80,6 @@ impl Registry {
                 desc: type_name::<D>(),
             })?
             .clone();
-        let store = self.stores.get_mut();
 
         let label = desc.label();
         let data = desc.take_external();
@@ -91,7 +90,14 @@ impl Registry {
 
         let route = Route::resolve(desc.take_external(), &self.readers)?;
 
-        let handle = store.insert(self.ftx.clone());
+        let t = self.allocator.alloc();
+        let key = Key::new(t.id, t.generation);
+        let handle = Handle(Arc::new(Guard::new(
+            TypeId::of::<A>(),
+            key,
+            self.ftx.clone(),
+        )));
+
         let label = label.unwrap_or_else(|| {
             let key = handle.key();
             AssetLabel::from(format!(
