@@ -1,5 +1,6 @@
 mod config;
 mod errors;
+mod graph;
 mod loader;
 mod pool;
 mod reader;

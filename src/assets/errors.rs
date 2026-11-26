@@ -40,6 +40,16 @@ pub enum AssetError {
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
+pub enum GraphError {
+    #[error("cycle detected")]
+    Cycle,
+
+    #[error("self referential cycle found")]
+    SelfReference,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum InitError {
     #[error("asset root `{}` is not accessible", path.display())]
     Root {
