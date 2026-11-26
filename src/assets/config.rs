@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 pub struct AssetConfig {
     /// Root for the default `file://` reader. Relative paths resolve against
-    /// CARGO_MANIFEST_DIR in debug builds and the executable's dir in release.
+    /// CARGO_MANIFEST_DIR when run by cargo.
     pub root: PathBuf,
     /// Threads that run blocking reads.
     pub io_threads: u8,

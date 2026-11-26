@@ -88,7 +88,7 @@ impl<A: Asset> Store<A> {
         if let Some(id) = self.free.pop() {
             let slot = &mut self.items[id];
             let key = Key::new(id, slot.generation);
-            let guard = Arc::new(Guard::new(key, tx));
+            let guard = Arc::new(Guard::new(TypeId::of::<A>(), key, tx));
 
             slot.guard = Arc::downgrade(&guard);
             slot.state = Some(AssetState::Pending);
@@ -96,7 +96,7 @@ impl<A: Asset> Store<A> {
             Handle(guard)
         } else {
             let key = Key::new(self.items.len(), 0);
-            let guard = Arc::new(Guard::new(key, tx));
+            let guard = Arc::new(Guard::new(TypeId::of::<A>(), key, tx));
 
             self.items.push(Slot::new(Arc::downgrade(&guard)));
 
@@ -285,20 +285,21 @@ impl<T> PartialEq for Key<T> {
 }
 
 pub(super) struct Guard<T> {
+    id: TypeId,
     pub(super) key: Key<T>,
     tx: Sender<Freed>,
 }
 
 impl<T> Guard<T> {
-    pub(super) fn new(key: Key<T>, tx: Sender<Freed>) -> Self {
-        Self { key, tx }
+    pub(super) fn new(id: TypeId, key: Key<T>, tx: Sender<Freed>) -> Self {
+        Self { id, key, tx }
     }
 }
 
 impl<T> Drop for Guard<T> {
     fn drop(&mut self) {
         let _ = self.tx.send(Freed {
-            type_id: TypeId::of::<T>(),
+            type_id: self.id,
             type_name: type_name::<T>(),
             id: self.key.id,
             generation: self.key.generation,

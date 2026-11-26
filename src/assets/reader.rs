@@ -1,8 +1,8 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
     env, fs, io,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::Arc,
 };
 
@@ -30,7 +30,16 @@ impl Readers {
         scheme: impl Into<Cow<'static, str>>,
         reader: impl AssetReader,
     ) {
-        self.0.insert(scheme.into(), Arc::new(reader));
+        let entry = self.0.entry(scheme.into());
+        match entry {
+            Entry::Occupied(_) => {
+                panic!("duplicate reader for scheme {}", scheme)
+            }
+
+            Entry::Vacant(e) => {
+                let _ = e.insert(Arc::new(reader));
+            }
+        }
     }
 }
 
@@ -51,6 +60,18 @@ impl FileReader {
 
 impl AssetReader for FileReader {
     fn read(&self, path: &str) -> io::Result<Bytes> {
+        // TODO: actually add security maybe instead of just checking path string
+        let rel = Path::new(path.as_ref());
+        if !rel
+            .components()
+            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
+        {
+            return Err(io::Error::other(format!(
+                "`{}` escapes the asset root",
+                rel.to_path_buf()
+            )));
+        }
+
         let path = self.root.join(Path::new(path));
         fs::read(path).map(Bytes::from)
     }
@@ -61,8 +82,8 @@ fn resolve_root(root: &Path) -> PathBuf {
         return root.to_path_buf();
     }
 
-    if let Some(dir) = option_env!("CARGO_MANIFEST_DIR") {
-        return Path::new(dir).join(root);
+    if let Some(dir) = env::var_os("CARGO_MANIFEST_DIR") {
+        return PathBuf::from(dir).join(root);
     }
 
     env::current_exe()

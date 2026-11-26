@@ -1,6 +1,5 @@
 use std::{
     any::Any,
-    path::{Component, Path},
     sync::Arc,
     thread::{self, JoinHandle},
 };
@@ -18,6 +17,7 @@ type Job = Box<dyn FnOnce() + Send>;
 
 pub(super) struct Pool {
     // ORDER MATTERS: the senders must drop before workers joins.
+    shutdown: Sender<()>,
     io_tx: Sender<Job>,
     p_txs: [Sender<Job>; Priority::PRIORITY_COUNT],
     workers: Workers,
@@ -26,10 +26,14 @@ pub(super) struct Pool {
 impl Pool {
     pub(super) fn new(cfg: &AssetConfig) -> Self {
         let mut handles = Vec::new();
+        let (shutdown, shutdown_rx) = crossbeam_channel::bounded::<()>(0);
 
         let (io_tx, io_rx) = crossbeam_channel::unbounded();
-        for _ in 0..cfg.io_threads {
-            handles.push(Pool::spawn_io_worker(io_rx.clone()));
+        for _ in 0..cfg.io_threads.max(1) {
+            handles.push(Pool::spawn_io_worker(
+                shutdown_rx.clone(),
+                io_rx.clone(),
+            ));
         }
 
         let (pc_tx, pc_rx) = crossbeam_channel::unbounded();
@@ -45,10 +49,11 @@ impl Pool {
 
         for _ in 0..num_threads {
             let p_rxs = [pc_rx.clone(), pi_rx.clone(), ps_rx.clone()];
-            handles.push(Pool::spawn_parse_worker(p_rxs));
+            handles.push(Pool::spawn_parse_worker(shutdown_rx.clone(), p_rxs));
         }
 
         Self {
+            shutdown,
             io_tx,
             p_txs,
             workers: Workers(handles),
@@ -79,20 +84,31 @@ impl Pool {
 
     // ------------------------------------------------------------------------
 
-    fn spawn_io_worker(rx: Receiver<Job>) -> JoinHandle<()> {
+    fn spawn_io_worker(
+        stop: Receiver<()>,
+        rx: Receiver<Job>,
+    ) -> JoinHandle<()> {
         thread::spawn(move || {
-            while let Ok(job) = rx.recv() {
-                (job)()
+            loop {
+                select_biased!(
+                    recv(stop) -> _ => break,
+                    recv(rx) -> job => match job {
+                        Ok(job) => job(),
+                        Err(_) => break,
+                    },
+                )
             }
         })
     }
 
     fn spawn_parse_worker(
+        stop: Receiver<()>,
         rxs: [Receiver<Job>; Priority::PRIORITY_COUNT],
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             loop {
                 select_biased!(
+                    recv(stop) -> _ => break,
                     recv(rxs[Priority::Critical as usize]) -> job => match job {
                         Ok(job) => job(),
                         Err(_) => break,
@@ -143,18 +159,6 @@ impl Route {
                         scheme: path.scheme.clone().into(),
                     },
                 )?;
-
-                // TODO: actually add security maybe instead of just checking path string
-                if path.scheme == "file" {
-                    let rel = Path::new(path.path.as_ref());
-                    if !rel.components().all(|c| {
-                        matches!(c, Component::Normal(_) | Component::CurDir)
-                    }) {
-                        return Err(LoadError::PathOutsideRoot {
-                            path: rel.to_path_buf(),
-                        });
-                    }
-                }
 
                 Route::Fetch(Box::new(move || {
                     reader

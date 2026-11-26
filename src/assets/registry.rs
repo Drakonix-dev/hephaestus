@@ -8,10 +8,11 @@ use std::{
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::assets::{
-    Asset, AssetConfig, AssetLabel, AssetReader, AssetState, AssetStatus,
-    Descriptor, ErasedLoader, ErasedStore, FileReader, Freed, GameAsset,
-    Handle, INVARIANT, InitError, Key, LoadError, LoadJob, Loader, LoaderCell,
-    Pool, Priority, Readers, Route, Store, SubmitFn, WeakHandle, catch_panic,
+    Asset, AssetConfig, AssetData, AssetLabel, AssetReader, AssetState,
+    AssetStatus, Descriptor, ErasedLoader, ErasedStore, FileReader, Freed,
+    GameAsset, Handle, INVARIANT, InitError, Key, LoadError, LoadJob, Loader,
+    LoaderCell, Pool, Priority, Readers, Route, Store, SubmitFn, WeakHandle,
+    catch_panic,
 };
 
 pub struct Registry {
@@ -90,6 +91,12 @@ impl Registry {
             .expect(INVARIANT);
 
         let label = desc.label();
+        let data = desc.take_external();
+        let label = label.or_else(|| match &data {
+            Some(AssetData::Path(p)) => Some(AssetLabel::from(p.to_string())),
+            _ => None,
+        });
+
         let route = Route::resolve(desc.take_external(), &self.readers)?;
 
         let handle = store.insert(self.ftx.clone());

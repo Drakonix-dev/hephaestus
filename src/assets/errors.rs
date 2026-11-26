@@ -62,9 +62,6 @@ pub enum InitError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum LoadError {
-    #[error("`{path}` escapes the asset root")]
-    PathOutsideRoot { path: PathBuf },
-
     #[error("no loader registered for {asset} from {desc}")]
     UnhandledAsset {
         asset: &'static str,
