@@ -2,7 +2,6 @@ use core::fmt;
 use std::{
     any::{Any, TypeId},
     borrow::Cow,
-    collections::HashMap,
     error::Error,
     marker::PhantomData,
     sync::Arc,
@@ -10,9 +9,7 @@ use std::{
 
 use bytes::Bytes;
 
-use crate::assets::{
-    Asset, AssetError, AssetLabel, GameAsset, INVARIANT, Stores, WeakHandle,
-};
+use crate::assets::{Asset, AssetError, AssetLabel, INVARIANT, WeakHandle};
 
 pub(super) type BuildFn =
     Box<dyn FnOnce() -> Result<Box<dyn Any>, AssetError> + Send>;
@@ -23,7 +20,6 @@ pub(super) trait ErasedLoader: Send + Sync + 'static {
         desc: Box<dyn Any + Send>,
         label: AssetLabel,
         bytes: Option<Bytes>,
-        deps: &mut Deps,
     ) -> Result<BuildFn, AssetError>;
 }
 
@@ -41,7 +37,6 @@ pub trait Loader<A: Asset>: Send + Sync + 'static {
         &self,
         desc: &Self::Desc,
         bytes: Option<Bytes>,
-        deps: &mut Deps,
     ) -> Result<Self::Parsed, Self::Error>;
 }
 
@@ -63,15 +58,15 @@ where
         desc: Box<dyn Any + Send>,
         label: AssetLabel,
         bytes: Option<Bytes>,
-        deps: &mut Deps,
     ) -> Result<BuildFn, AssetError> {
         let desc = desc.downcast::<L::Desc>().expect(INVARIANT);
-        let parsed = self.0.parse(&desc, bytes, deps).map_err(|source| {
-            AssetError::Parse {
-                asset: label.clone(),
-                source: Box::new(source),
-            }
-        })?;
+        let parsed =
+            self.0
+                .parse(&desc, bytes)
+                .map_err(|source| AssetError::Parse {
+                    asset: label.clone(),
+                    source: Box::new(source),
+                })?;
 
         Ok(Box::new(move || {
             self.0
@@ -132,12 +127,18 @@ pub struct Deps {
 }
 
 impl Deps {
+    pub(super) fn new() -> Self {
+        Self { keys: Vec::new() }
+    }
+
     pub fn optional<A: Asset>(&mut self, h: impl Into<WeakHandle<A>>) {
-        self.keys.push((ErasedKey::new(h), DepKind::Optional))
+        self.keys
+            .push((ErasedKey::new(h, TypeId::of::<A>()), DepKind::Optional))
     }
 
     pub fn require<A: Asset>(&mut self, h: impl Into<WeakHandle<A>>) {
-        self.keys.push((ErasedKey::new(h), DepKind::Required))
+        self.keys
+            .push((ErasedKey::new(h, TypeId::of::<A>()), DepKind::Required))
     }
 }
 
@@ -154,55 +155,12 @@ pub(super) struct ErasedKey {
 }
 
 impl ErasedKey {
-    fn new<A: Asset>(h: impl Into<WeakHandle<A>>) -> Self {
+    fn new<A: Asset>(h: impl Into<WeakHandle<A>>, id: TypeId) -> Self {
         let key = h.into().key();
         Self {
             id: key.id,
             generation: key.generation,
-            type_id: key.type_id,
+            type_id: id,
         }
-    }
-}
-
-pub(super) struct Parked {
-    pub(super) apply: Box<dyn FnOnce()>,
-    pub(super) remaining: usize,
-}
-
-#[derive(Default)]
-pub(super) struct Dependencies {
-    pub(super) dependendents: HashMap<ErasedKey, Vec<ErasedKey>>,
-    pub(super) parked: HashMap<ErasedKey, Parked>,
-}
-
-pub struct BuildCtx<'a> {
-    declared: &'a [(ErasedKey, DepKind)],
-    stores: &'a Stores,
-}
-
-impl BuildCtx<'_> {
-    pub fn get<A: GameAsset>(&self, h: impl Into<WeakHandle<A>>) -> &A::Built {
-        self.get_built(h)
-    }
-
-    pub(crate) fn get_built<A: Asset>(
-        &self,
-        h: impl Into<WeakHandle<A>>,
-    ) -> &A::Built {
-        todo!()
-    }
-
-    pub(crate) fn get_built_optional<A: Asset>(
-        &self,
-        h: impl Into<WeakHandle<A>>,
-    ) -> Option<&A::Built> {
-        todo!()
-    }
-
-    pub fn get_optional<A: GameAsset>(
-        &self,
-        h: impl Into<WeakHandle<A>>,
-    ) -> Option<&A::Built> {
-        self.get_built_optional(h)
     }
 }

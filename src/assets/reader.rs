@@ -30,10 +30,11 @@ impl Readers {
         scheme: impl Into<Cow<'static, str>>,
         reader: impl AssetReader,
     ) {
-        let entry = self.0.entry(scheme.into());
+        let scheme = scheme.into();
+        let entry = self.0.entry(scheme.clone());
         match entry {
             Entry::Occupied(_) => {
-                panic!("duplicate reader for scheme {}", scheme)
+                panic!("duplicate reader for scheme {}", scheme.into_owned())
             }
 
             Entry::Vacant(e) => {
@@ -61,14 +62,14 @@ impl FileReader {
 impl AssetReader for FileReader {
     fn read(&self, path: &str) -> io::Result<Bytes> {
         // TODO: actually add security maybe instead of just checking path string
-        let rel = Path::new(path.as_ref());
+        let rel = Path::new(path);
         if !rel
             .components()
             .all(|c| matches!(c, Component::Normal(_) | Component::CurDir))
         {
             return Err(io::Error::other(format!(
                 "`{}` escapes the asset root",
-                rel.to_path_buf()
+                rel.display()
             )));
         }
 

@@ -9,14 +9,14 @@ use crossbeam_channel::{Receiver, Sender};
 
 use crate::assets::{
     Asset, AssetConfig, AssetData, AssetLabel, AssetReader, AssetState,
-    AssetStatus, Dependencies, Descriptor, ErasedLoader, ErasedStore,
-    FileReader, Freed, GameAsset, Handle, INVARIANT, InitError, Key, LoadError,
-    LoadJob, Loader, LoaderCell, Pool, Priority, Readers, Route, Store, Stores,
-    SubmitFn, WeakHandle, catch_panic,
+    AssetStatus, Descriptor, ErasedLoader, ErasedStore, FileReader, Freed,
+    GameAsset, Handle, INVARIANT, InitError, Key, LoadError, LoadJob, Loader,
+    LoaderCell, Pool, Priority, Readers, Route, Store, Stores, SubmitFn,
+    WeakHandle, Workers, catch_panic, ticket::Allocator,
 };
 
 pub struct Registry {
-    deps: Dependencies,
+    allocator: Arc<Allocator>,
     frx: Receiver<Freed>,
     ftx: Sender<Freed>,
     loaders: HashMap<(TypeId, TypeId), Arc<dyn ErasedLoader>>,
@@ -25,6 +25,7 @@ pub struct Registry {
     qtx: Sender<QueuedAsset>,
     readers: Readers,
     stores: Stores,
+    _workers: Workers,
 }
 
 impl Registry {
@@ -35,16 +36,19 @@ impl Registry {
         let mut readers = Readers::new();
         readers.register("file", FileReader::new(&cfg.root)?);
 
+        let (pool, workers) = Pool::spawn(cfg);
+
         Ok(Self {
-            deps: Dependencies::default(),
+            allocator: Arc::new(Allocator::default()),
             frx,
             ftx,
             loaders: HashMap::new(),
-            pool: Pool::new(cfg),
+            pool,
             qrx,
             qtx,
             readers,
             stores: Stores::default(),
+            _workers: workers,
         })
     }
 
@@ -134,7 +138,7 @@ impl Registry {
         D: Descriptor,
         L: Loader<A, Desc = D>,
     {
-        self.stores.init::<A>();
+        self.stores.init::<A>(self.allocator.clone());
 
         let entry = self.loaders.entry((TypeId::of::<A>(), TypeId::of::<D>()));
         match entry {
@@ -216,4 +220,17 @@ struct QueuedAsset {
     apply: ApplyFn,
     type_id: TypeId,
     type_name: &'static str,
+}
+
+#[derive(Clone)]
+pub struct Requester {}
+
+impl Requester {
+    pub fn load<A: Asset, D: Descriptor>(
+        &self,
+        mut desc: D,
+        priority: Priority,
+    ) -> Result<Handle<A>, LoadError> {
+        todo!()
+    }
 }

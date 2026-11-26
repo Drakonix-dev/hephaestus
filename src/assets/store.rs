@@ -9,7 +9,10 @@ use std::{
 
 use crossbeam_channel::Sender;
 
-use crate::assets::{AssetError, INVARIANT};
+use crate::assets::{
+    AssetError, INVARIANT,
+    ticket::{Allocator, Ticket},
+};
 
 pub(crate) mod private {
     pub trait BuiltAsset: 'static {
@@ -85,11 +88,11 @@ impl Stores {
             .expect(INVARIANT)
     }
 
-    pub(super) fn init<A: Asset>(&mut self) {
+    pub(super) fn init<A: Asset>(&mut self, allocator: Arc<Allocator>) {
         let _ = self
             .0
             .entry(TypeId::of::<A>())
-            .or_insert_with(|| Box::new(Store::<A>::new()));
+            .or_insert_with(|| Box::new(Store::<A>::new(allocator)));
     }
 }
 
@@ -99,15 +102,16 @@ pub(super) trait ErasedStore: Any {
     fn free(&mut self, freed: Freed);
 }
 
+#[derive(Default)]
 pub(super) struct Store<A: Asset> {
-    free: Vec<usize>,
+    allocator: Arc<Allocator>,
     items: Vec<Slot<A>>,
 }
 
 impl<A: Asset> Store<A> {
-    pub(super) fn new() -> Self {
+    fn new(allocator: Arc<Allocator>) -> Self {
         Self {
-            free: Vec::new(),
+            allocator,
             items: Vec::new(),
         }
     }
@@ -122,38 +126,39 @@ impl<A: Asset> Store<A> {
             slot.guard = Weak::new();
             slot.state = None;
 
-            self.free.push(freed.id);
+            self.allocator.release(Ticket {
+                id: freed.id,
+                generation: freed.generation,
+            })
         }
     }
 
     pub(super) fn insert(&mut self, tx: Sender<Freed>) -> Handle<A> {
-        if let Some(id) = self.free.pop() {
-            let slot = &mut self.items[id];
-            let key = Key::new(id, slot.generation);
-            let guard = Arc::new(Guard::new(TypeId::of::<A>(), key, tx));
-
-            slot.guard = Arc::downgrade(&guard);
-            slot.state = Some(AssetState::Pending);
-
-            Handle(guard)
-        } else {
-            let key = Key::new(self.items.len(), 0);
-            let guard = Arc::new(Guard::new(TypeId::of::<A>(), key, tx));
-
-            self.items.push(Slot::new(Arc::downgrade(&guard)));
-
-            Handle(guard)
+        let t = self.allocator.alloc();
+        if t.id >= self.items.len() {
+            self.items.resize_with(t.id + 1, || Slot::new(Weak::new()));
         }
+
+        let key = Key::new(t.id, t.generation);
+        let guard = Arc::new(Guard::new(TypeId::of::<A>(), key, tx));
+
+        self.items[t.id].generation = t.generation;
+        self.items[t.id].guard = Arc::downgrade(&guard);
+        self.items[t.id].state = Some(AssetState::Pending);
+
+        Handle(guard)
     }
 
     pub(super) fn lookup(&self, key: &Key<A>) -> Option<&AssetState<A::Built>> {
         if let Some(slot) = self.items.get(key.id) {
             if slot.generation == key.generation {
                 return slot.state.as_ref();
+            } else if slot.generation > key.generation {
+                return None;
             }
         }
 
-        None
+        Some(&AssetState::Pending)
     }
 
     pub(super) fn update(&mut self, key: &Key<A>, state: AssetState<A::Built>) {
@@ -190,7 +195,7 @@ impl<A: Asset> Slot<A> {
         Self {
             generation: 0,
             guard,
-            state: Some(AssetState::Pending),
+            state: None,
         }
     }
 }
