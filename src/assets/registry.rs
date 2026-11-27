@@ -12,11 +12,11 @@ use crate::assets::{
     AssetStatus, Descriptor, ErasedLoader, ErasedStore, FileReader, Freed,
     GameAsset, Guard, Handle, INVARIANT, InitError, Key, LoadError, LoadJob,
     Loader, LoaderCell, Pool, Priority, Readers, Route, Store, Stores,
-    SubmitFn, WeakHandle, Workers, catch_panic, ticket::Allocator,
+    SubmitFn, WeakHandle, Workers, catch_panic, ticket::Allocators,
 };
 
 pub struct Registry {
-    allocator: Arc<Allocator>,
+    allocators: Allocators,
     frx: Receiver<Freed>,
     ftx: Sender<Freed>,
     loaders: HashMap<(TypeId, TypeId), Arc<dyn ErasedLoader>>,
@@ -39,7 +39,7 @@ impl Registry {
         let (pool, workers) = Pool::spawn(cfg);
 
         Ok(Self {
-            allocator: Arc::new(Allocator::default()),
+            allocators: Allocators::default(),
             frx,
             ftx,
             loaders: HashMap::new(),
@@ -88,9 +88,14 @@ impl Registry {
             _ => None,
         });
 
-        let route = Route::resolve(desc.take_external(), &self.readers)?;
+        let route = Route::resolve(data, &self.readers)?;
 
-        let t = self.allocator.alloc();
+        let t = self
+            .allocators
+            .get::<A>()
+            .unwrap_or_else(|| panic!("no allocator for {}", type_name::<A>()))
+            .alloc();
+
         let key = Key::new(t.id, t.generation);
         let handle = Handle(Arc::new(Guard::new(
             TypeId::of::<A>(),
@@ -144,8 +149,6 @@ impl Registry {
         D: Descriptor,
         L: Loader<A, Desc = D>,
     {
-        self.stores.init::<A>(self.allocator.clone());
-
         let entry = self.loaders.entry((TypeId::of::<A>(), TypeId::of::<D>()));
         match entry {
             Entry::Occupied(_) => panic!(
@@ -155,6 +158,7 @@ impl Registry {
             ),
             Entry::Vacant(e) => {
                 let _ = e.insert(Arc::new(LoaderCell::new(loader)));
+                self.stores.init::<A>(self.allocators.register::<A>());
             }
         }
     }

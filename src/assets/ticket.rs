@@ -1,4 +1,21 @@
-use std::sync::Mutex;
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+#[derive(Default)]
+pub(super) struct Allocators(HashMap<TypeId, Arc<Allocator>>);
+
+impl Allocators {
+    pub(super) fn get<A: 'static>(&self) -> Option<&Arc<Allocator>> {
+        self.0.get(&TypeId::of::<A>())
+    }
+
+    pub(super) fn register<A: 'static>(&mut self) -> Arc<Allocator> {
+        Arc::clone(self.0.entry(TypeId::of::<A>()).or_default())
+    }
+}
 
 #[derive(Default)]
 pub(super) struct Allocator {
